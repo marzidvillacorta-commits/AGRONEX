@@ -2,6 +2,11 @@
 
 Aplicación PWA independiente para registrar y supervisar el avance diario de labores agrícolas por cuadrilla, sector y cultivo.
 
+## Flujos disponibles
+
+- **Encargado de labor:** selecciona su usuario, revisa su tarea y cuadrilla, registra avance total e individual y consulta su rendimiento.
+- **Supervisor general:** accede tocando el logo AgroNex, revisa toda la operación, planifica tareas y gestiona encargados, cuadrillas, trabajadores, sectores y configuración.
+
 ## Requisitos
 
 - Node.js 20 o superior.
@@ -50,7 +55,7 @@ Importa el repositorio, selecciona Next.js y usa `npm run build` como comando de
 4. En iPhone con Safari, pulsa **Compartir** y luego **Agregar a inicio**.
 5. Abre AgroNex desde el icono creado y confirma que se muestre sin la interfaz del navegador.
 
-## Acceso administrativo inicial
+## Acceso inicial del Supervisor general
 
 Contraseña temporal: `admin123`
 
