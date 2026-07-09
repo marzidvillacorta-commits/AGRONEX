@@ -1,4 +1,4 @@
-export type AppRole = "encargado" | "supervisor";
+﻿export type AppRole = "encargado" | "supervisor";
 export type Attendance = "Presente" | "Ausente";
 export type OperationStatus = "En proceso" | "Prioridad" | "Terminado" | "Pendiente";
 export type Priority = "Alta" | "Media" | "Normal";
@@ -6,7 +6,8 @@ export type Priority = "Alta" | "Media" | "Normal";
 export type AppScreen =
   | "inicio" | "registrar" | "cuadrilla" | "rendimiento" | "mas"
   | "trabajadores" | "pendientes" | "planificacion" | "avances"
-  | "reportes" | "encargados" | "cuadrillas" | "sectores" | "configuracion";
+  | "reportes" | "encargados" | "cuadrillas" | "sectores" | "configuracion"
+  | "sincronizacion";
 
 export type LeaderUser = {
   id: string;
@@ -166,3 +167,4 @@ export const catalog = {
 export const getCrewForLeader = (leaderId: string) => crews.find((crew) => crew.leaderId === leaderId)!;
 export const getWorkersForCrew = (crewId: string) => workers.filter((worker) => worker.crewId === crewId);
 export const getTaskForLeader = (leaderId: string) => plannedTasks.find((task) => task.assignedTo === leaderId)!;
+

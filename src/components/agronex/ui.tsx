@@ -14,8 +14,8 @@ export function DonutProgress({ value, size = 132 }: { value: number; size?: num
   return <div className="relative grid place-items-center rounded-full" style={{ width: size, height: size, background: `conic-gradient(#1f9d67 ${value * 3.6}deg, #e8eee9 0)` }}><div className="grid size-[78%] place-items-center rounded-full bg-white text-center"><div><strong className="block text-3xl font-extrabold text-[#173c2d]">{value}%</strong><span className="text-[10px] font-semibold uppercase tracking-wider text-[#819087]">completado</span></div></div></div>;
 }
 
-export function SectionTitle({ title, action }: { title: string; action?: React.ReactNode }) {
-  return <div className="mb-4 flex items-center justify-between gap-4"><h2 className="text-lg font-bold tracking-tight text-[#173c2d]">{title}</h2>{action}</div>;
+export function SectionTitle({ title, action, className = "" }: { title: string; action?: React.ReactNode; className?: string }) {
+  return <div className={`mb-4 flex items-center justify-between gap-4 ${className}`}><h2 className="text-lg font-bold tracking-tight text-[#173c2d]">{title}</h2>{action}</div>;
 }
 
 export function StatusBadge({ status }: { status: OperationStatus | "Presente" | "Ausente" | "Activo" }) {

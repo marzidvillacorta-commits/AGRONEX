@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { AlertTriangle, ArrowRight, BarChart3, CalendarClock, Clock3, LogOut, RefreshCw, Sparkles, Target, TrendingDown, TrendingUp, UserCheck, UserMinus, Users, UsersRound } from "lucide-react";
@@ -54,3 +54,4 @@ function WorkerList({ workers, crew }: { workers: Worker[]; crew: Crew }) { cons
 function RankingCard({ title, icon: Icon, workers, crew }: { title: string; icon: typeof BarChart3; workers: Worker[]; crew: Crew }) { return <section className="ag-card p-5 sm:p-6"><div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#e9f6ef] text-[#18794e]"><Icon size={18} /></span><h2 className="font-bold text-[#173c2d]">{title}</h2></div><div className="space-y-3">{workers.map((worker, index) => <div key={worker.id} className="flex items-center gap-3"><span className="grid size-7 place-items-center rounded-full bg-[#eff4f0] text-xs font-bold text-[#597067]">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#355447]">{worker.name}</span><strong className="text-xs text-[#173c2d]">{worker.dailyOutput} {crew.unit}</strong></div>)}</div></section>; }
 function HeroStat({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-wide text-white/50">{label}</p><p className="mt-1 truncate text-xs font-extrabold text-white">{value}</p></div>; }
 function formatNumber(value: number) { return Number(value.toFixed(2)).toString(); }
+
