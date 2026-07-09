@@ -1,10 +1,11 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import { crews as initialCrews, workers as initialWorkers, type Crew, type Worker } from "@/data/agronexData";
+import { crews as initialCrews, leaders as initialLeaders, workers as initialWorkers, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
 import type { LocalPlanningRecord, LocalProgressRecord, SyncQueueRecord } from "@/lib/agronex-offline";
 
 type AgroSessionContextValue = {
+  leaders: LeaderUser[];
   crews: Crew[];
   workers: Worker[];
   progressRecords: LocalProgressRecord[];
@@ -14,10 +15,17 @@ type AgroSessionContextValue = {
   isOnline: boolean;
   connectionNotice: string | null;
   savePlanningRecord: (record: LocalPlanningRecord) => void;
+  addLeader: (leader: LeaderUser) => void;
+  addWorker: (worker: Worker) => void;
+  updateWorker: (worker: Worker) => void;
+  deleteWorker: (workerId: string) => void;
+  updateLeader: (leader: LeaderUser) => void;
+  deleteLeader: (leaderId: string) => void;
   syncNow: () => number;
 };
 
 const AgroSessionContext = createContext<AgroSessionContextValue>({
+  leaders: initialLeaders,
   crews: initialCrews,
   workers: initialWorkers,
   progressRecords: [],
@@ -27,6 +35,12 @@ const AgroSessionContext = createContext<AgroSessionContextValue>({
   isOnline: true,
   connectionNotice: null,
   savePlanningRecord: () => {},
+  addLeader: () => {},
+  addWorker: () => {},
+  updateWorker: () => {},
+  deleteWorker: () => {},
+  updateLeader: () => {},
+  deleteLeader: () => {},
   syncNow: () => 0,
 });
 

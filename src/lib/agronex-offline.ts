@@ -1,4 +1,4 @@
-import type { Crew, Worker } from "@/data/agronexData";
+import type { Crew, LeaderUser, Worker } from "@/data/agronexData";
 import type { ProgressSubmission } from "@/components/agronex/register-form";
 
 export type SyncRecordType = "avance" | "asistencia" | "trabajador" | "tarea" | "encargado";
@@ -54,6 +54,7 @@ export type LocalPlanningRecord = {
 };
 
 export type AgroLocalSnapshot = {
+  leaders: LeaderUser[];
   crews: Crew[];
   workers: Worker[];
   progressRecords: LocalProgressRecord[];
@@ -77,15 +78,16 @@ export function createLocalId(prefix: string) {
   return `${prefix}-${Date.now()}-${random}`;
 }
 
-export function loadAgroLocalSnapshot(initialCrews: Crew[], initialWorkers: Worker[]): AgroLocalSnapshot {
-  if (typeof window === "undefined") return createInitialSnapshot(initialCrews, initialWorkers);
+export function loadAgroLocalSnapshot(initialLeaders: LeaderUser[], initialCrews: Crew[], initialWorkers: Worker[]): AgroLocalSnapshot {
+  if (typeof window === "undefined") return createInitialSnapshot(initialLeaders, initialCrews, initialWorkers);
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return createInitialSnapshot(initialCrews, initialWorkers);
+    if (!raw) return createInitialSnapshot(initialLeaders, initialCrews, initialWorkers);
 
     const parsed = JSON.parse(raw) as Partial<AgroLocalSnapshot>;
     return {
+      leaders: parsed.leaders?.length ? parsed.leaders : initialLeaders,
       crews: parsed.crews?.length ? parsed.crews : initialCrews,
       workers: parsed.workers?.length ? parsed.workers : initialWorkers,
       progressRecords: parsed.progressRecords ?? [],
@@ -94,7 +96,7 @@ export function loadAgroLocalSnapshot(initialCrews: Crew[], initialWorkers: Work
       lastSyncAt: parsed.lastSyncAt ?? null,
     };
   } catch {
-    return createInitialSnapshot(initialCrews, initialWorkers);
+    return createInitialSnapshot(initialLeaders, initialCrews, initialWorkers);
   }
 }
 
@@ -110,7 +112,7 @@ export function buildProgressRecord(input: {
   crew: Crew;
 }): LocalProgressRecord {
   const remaining = Math.max(0, Number((input.crew.goal - input.submission.progress).toFixed(2)));
-  const percentage = Math.min(100, Math.round((input.submission.progress / input.crew.goal) * 100));
+  const percentage = input.crew.goal > 0 ? Math.min(100, Math.round((input.submission.progress / input.crew.goal) * 100)) : 0;
 
   return {
     id: createLocalId("progress"),
@@ -173,8 +175,9 @@ export function syncPendingRecords(syncQueue: SyncQueueRecord[]) {
   };
 }
 
-function createInitialSnapshot(initialCrews: Crew[], initialWorkers: Worker[]): AgroLocalSnapshot {
+function createInitialSnapshot(initialLeaders: LeaderUser[], initialCrews: Crew[], initialWorkers: Worker[]): AgroLocalSnapshot {
   return {
+    leaders: initialLeaders,
     crews: initialCrews,
     workers: initialWorkers,
     progressRecords: [],

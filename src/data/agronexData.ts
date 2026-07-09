@@ -19,6 +19,7 @@ export type LeaderUser = {
   crewId: string;
   crewName: string;
   status: OperationStatus;
+  accessPassword: string;
 };
 
 export type Worker = {
@@ -28,7 +29,7 @@ export type Worker = {
   crewName: string;
   assignedTo: string;
   assignedName: string;
-  status: "Activo";
+  status: "Activo" | "Inactivo" | "Sin cuadrilla";
   attendance: Attendance;
   dailyOutput: number;
   unit: string;
@@ -86,11 +87,11 @@ export type WeeklyPerformance = {
 };
 
 export const leaders: LeaderUser[] = [
-  { id: "leader-marcos", name: "Marcos", role: "Encargado de labor", labor: "Machete", crop: "Palto", sector: "Lote 05", crewId: "crew-machete-01", crewName: "Cuadrilla Machete 01", status: "En proceso" },
-  { id: "leader-susana", name: "Susana", role: "Encargado de labor", labor: "Cosecha arándano", crop: "Arándano", sector: "Bloque B3", crewId: "crew-arandano-01", crewName: "Cuadrilla Arándano 01", status: "Prioridad" },
-  { id: "leader-lopez", name: "López", role: "Encargado de labor", labor: "Riego", crop: "Palto", sector: "Sector A1", crewId: "crew-riego-01", crewName: "Cuadrilla Riego 01", status: "Terminado" },
-  { id: "leader-pedro", name: "Pedro", role: "Encargado de labor", labor: "Poda", crop: "Palto", sector: "Lote 04", crewId: "crew-poda-01", crewName: "Cuadrilla Poda 01", status: "En proceso" },
-  { id: "leader-carlos", name: "Carlos", role: "Encargado de labor", labor: "Maleza", crop: "Palto", sector: "Lote 07", crewId: "crew-maleza-01", crewName: "Cuadrilla Maleza 01", status: "Pendiente" },
+  { id: "leader-marcos", name: "Marcos", role: "Encargado de labor", labor: "Machete", crop: "Palto", sector: "Lote 05", crewId: "crew-machete-01", crewName: "Cuadrilla Machete 01", status: "En proceso", accessPassword: "marcos123" },
+  { id: "leader-susana", name: "Susana", role: "Encargado de labor", labor: "Cosecha arándano", crop: "Arándano", sector: "Bloque B3", crewId: "crew-arandano-01", crewName: "Cuadrilla Arándano 01", status: "Prioridad", accessPassword: "susana123" },
+  { id: "leader-lopez", name: "López", role: "Encargado de labor", labor: "Riego", crop: "Palto", sector: "Sector A1", crewId: "crew-riego-01", crewName: "Cuadrilla Riego 01", status: "Terminado", accessPassword: "lopez123" },
+  { id: "leader-pedro", name: "Pedro", role: "Encargado de labor", labor: "Poda", crop: "Palto", sector: "Lote 04", crewId: "crew-poda-01", crewName: "Cuadrilla Poda 01", status: "En proceso", accessPassword: "pedro123" },
+  { id: "leader-carlos", name: "Carlos", role: "Encargado de labor", labor: "Maleza", crop: "Palto", sector: "Lote 07", crewId: "crew-maleza-01", crewName: "Cuadrilla Maleza 01", status: "Pendiente", accessPassword: "carlos123" },
 ];
 
 export const crews: Crew[] = [

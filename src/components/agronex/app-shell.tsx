@@ -21,6 +21,7 @@ import {
   crews,
   getCrewForLeader,
   getWorkersForCrew,
+  leaders,
   type AppRole,
   type AppScreen,
   type Crew,
@@ -75,11 +76,12 @@ const TEMP_SUPERVISOR_PASSWORD = "admin123";
 const SUPERVISOR_SESSION_KEY = "agronex-supervisor-authenticated";
 
 export function AgroNexApp() {
-  const [localSnapshot] = useState(() => loadAgroLocalSnapshot(crews, crews.flatMap((crew) => getWorkersForCrew(crew.id))));
+  const [localSnapshot] = useState(() => loadAgroLocalSnapshot(leaders, crews, crews.flatMap((crew) => getWorkersForCrew(crew.id))));
   const [stage, setStage] = useState<"welcome" | "user-select" | "supervisor-access" | "app">("welcome");
   const [role, setRole] = useState<AppRole>("encargado");
   const [screen, setScreen] = useState<AppScreen>("inicio");
   const [selectedLeader, setSelectedLeader] = useState<LeaderUser | null>(null);
+  const [sessionLeaders, setSessionLeaders] = useState<LeaderUser[]>(localSnapshot.leaders);
   const [sessionCrews, setSessionCrews] = useState<Crew[]>(localSnapshot.crews);
   const [sessionWorkers, setSessionWorkers] = useState<Worker[]>(localSnapshot.workers);
   const [progressRecords, setProgressRecords] = useState<LocalProgressRecord[]>(localSnapshot.progressRecords);
@@ -91,6 +93,7 @@ export function AgroNexApp() {
 
   useEffect(() => {
     saveAgroLocalSnapshot({
+      leaders: sessionLeaders,
       crews: sessionCrews,
       workers: sessionWorkers,
       progressRecords,
@@ -98,7 +101,7 @@ export function AgroNexApp() {
       syncQueue,
       lastSyncAt,
     });
-  }, [lastSyncAt, planningRecords, progressRecords, sessionCrews, sessionWorkers, syncQueue]);
+  }, [lastSyncAt, planningRecords, progressRecords, sessionCrews, sessionLeaders, sessionWorkers, syncQueue]);
 
   useEffect(() => {
     const handleOffline = () => {
@@ -220,14 +223,89 @@ export function AgroNexApp() {
     enqueueSync(createSyncRecord("tarea", "create", record));
   };
 
+  const addLeader = (leader: LeaderUser) => {
+    const crew: Crew = {
+      id: leader.crewId,
+      name: leader.crewName,
+      leaderId: leader.id,
+      leaderName: leader.name,
+      labor: leader.labor,
+      crop: leader.crop,
+      sector: leader.sector,
+      totalWorkers: 0,
+      presentWorkers: 0,
+      absentWorkers: 0,
+      goal: 0,
+      progress: 0,
+      remaining: 0,
+      unit: "unidades",
+      percentage: 0,
+      hoursPerWorker: 0,
+      manHours: 0,
+      status: leader.status,
+    };
+    setSessionLeaders((current) => [leader, ...current]);
+    setSessionCrews((current) => [crew, ...current]);
+    enqueueSync(createSyncRecord("encargado", "create", leader));
+  };
+
+  const addWorker = (worker: Worker) => {
+    setSessionWorkers((current) => {
+      const next = [worker, ...current];
+      setSessionCrews((crews) => recalculateCrews(crews, next, sessionLeaders));
+      return next;
+    });
+    enqueueSync(createSyncRecord("trabajador", "create", worker));
+  };
+
+  const updateWorker = (worker: Worker) => {
+    setSessionWorkers((current) => {
+      const next = current.map((item) => item.id === worker.id ? worker : item);
+      setSessionCrews((crews) => recalculateCrews(crews, next, sessionLeaders));
+      return next;
+    });
+    enqueueSync(createSyncRecord("trabajador", "update", worker));
+  };
+
+  const deleteWorker = (workerId: string) => {
+    setSessionWorkers((current) => {
+      const deleted = current.find((worker) => worker.id === workerId);
+      const next = current.filter((worker) => worker.id !== workerId);
+      setSessionCrews((crews) => recalculateCrews(crews, next, sessionLeaders));
+      enqueueSync(createSyncRecord("trabajador", "delete", deleted ?? { id: workerId }));
+      return next;
+    });
+  };
+
+  const updateLeader = (leader: LeaderUser) => {
+    setSessionLeaders((current) => current.map((item) => item.id === leader.id ? leader : item));
+    setSessionCrews((current) => current.map((crew) => crew.leaderId === leader.id ? { ...crew, leaderName: leader.name, labor: leader.labor, crop: leader.crop, sector: leader.sector, name: leader.crewName, status: leader.status } : crew));
+    setSessionWorkers((current) => current.map((worker) => worker.assignedTo === leader.id ? { ...worker, assignedName: leader.name, crewId: leader.crewId, crewName: leader.crewName, unit: worker.unit } : worker));
+    if (selectedLeader?.id === leader.id) setSelectedLeader(leader);
+    enqueueSync(createSyncRecord("encargado", "update", leader));
+  };
+
+  const deleteLeader = (leaderId: string) => {
+    const deleted = sessionLeaders.find((leader) => leader.id === leaderId);
+    setSessionLeaders((current) => current.filter((leader) => leader.id !== leaderId));
+    setSessionWorkers((current) => {
+      const next = current.map((worker) => worker.assignedTo === leaderId ? { ...worker, assignedTo: "", assignedName: "Sin encargado", crewId: "", crewName: "Sin cuadrilla", status: "Sin cuadrilla" as const } : worker);
+      setSessionCrews((crews) => recalculateCrews(crews.map((crew) => crew.leaderId === leaderId ? { ...crew, leaderName: "Sin encargado", presentWorkers: 0, absentWorkers: 0, totalWorkers: 0, progress: 0, remaining: crew.goal, percentage: 0, manHours: 0, status: "Pendiente" as const } : crew), next, sessionLeaders.filter((leader) => leader.id !== leaderId)));
+      return next;
+    });
+    if (selectedLeader?.id === leaderId) exit();
+    enqueueSync(createSyncRecord("encargado", "delete", deleted ?? { id: leaderId }));
+  };
+
   if (stage === "welcome") return <Welcome onLeader={() => setStage("user-select")} onSupervisor={requestSupervisor} />;
-  if (stage === "user-select") return <UserSelector onBack={() => setStage("welcome")} onSelect={enterLeader} />;
+  if (stage === "user-select") return <UserSelector leaders={sessionLeaders} onBack={() => setStage("welcome")} onSelect={enterLeader} />;
   if (stage === "supervisor-access") return <SupervisorAccess onCancel={() => setStage("welcome")} onSuccess={authenticateSupervisor} />;
 
   return (
     <AgroSessionProvider
       value={{
         crews: sessionCrews,
+        leaders: sessionLeaders,
         workers: sessionWorkers,
         progressRecords,
         planningRecords,
@@ -236,6 +314,12 @@ export function AgroNexApp() {
         isOnline,
         connectionNotice,
         savePlanningRecord,
+        addLeader,
+        addWorker,
+        updateWorker,
+        deleteWorker,
+        updateLeader,
+        deleteLeader,
         syncNow: () => runSync("manual"),
       }}
     >
@@ -448,7 +532,7 @@ function LeaderRoutes({
   if (screen === "registrar") return <LeaderRegister leader={leader} crew={crew} workers={workers} onSave={onSave} />;
   if (screen === "cuadrilla") return <MyCrewScreen leader={leader} crew={crew} workers={workers} />;
   if (screen === "rendimiento") return <LeaderPerformance leader={leader} crew={crew} workers={workers} />;
-  if (screen === "trabajadores") return <MyWorkersScreen crew={crew} workers={workers} />;
+  if (screen === "trabajadores") return <MyWorkersScreen leader={leader} crew={crew} workers={workers} />;
   if (screen === "pendientes") return <LeaderPending crew={crew} />;
   if (screen === "mas") return <LeaderMore onNavigate={onNavigate} onChangeUser={onChangeUser} onExit={onExit} />;
   return <LeaderHome leader={leader} crew={crew} workers={workers} onNavigate={onNavigate} />;
@@ -589,5 +673,33 @@ function InstallPrompt() {
       Instalar
     </button>
   );
+}
+
+function recalculateCrews(currentCrews: Crew[], workers: Worker[], leaders: LeaderUser[]) {
+  return currentCrews.map((crew) => {
+    const leader = leaders.find((item) => item.id === crew.leaderId);
+    const crewWorkers = workers.filter((worker) => worker.crewId === crew.id && worker.status !== "Sin cuadrilla");
+    const presentWorkers = crewWorkers.filter((worker) => worker.attendance === "Presente");
+    const progress = Number(presentWorkers.reduce((sum, worker) => sum + Number(worker.dailyOutput || 0), 0).toFixed(2));
+    const goal = Number(crew.goal || 0);
+    const remaining = Math.max(0, Number((goal - progress).toFixed(2)));
+    const percentage = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : 0;
+
+    return {
+      ...crew,
+      leaderName: leader?.name ?? crew.leaderName,
+      labor: leader?.labor ?? crew.labor,
+      crop: leader?.crop ?? crew.crop,
+      sector: leader?.sector ?? crew.sector,
+      name: leader?.crewName ?? crew.name,
+      totalWorkers: crewWorkers.length,
+      presentWorkers: presentWorkers.length,
+      absentWorkers: crewWorkers.length - presentWorkers.length,
+      progress,
+      remaining,
+      percentage,
+      manHours: Number(presentWorkers.reduce((sum, worker) => sum + Number(worker.hoursWorked || 0), 0).toFixed(2)),
+    };
+  });
 }
 
