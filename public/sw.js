@@ -1,4 +1,4 @@
-const CACHE = "agronex-v5";
+const CACHE = "agronex-v6";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",

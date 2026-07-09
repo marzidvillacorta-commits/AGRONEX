@@ -6,7 +6,6 @@ import {
   BarChart3,
   Bell,
   ClipboardPlus,
-  Cloud,
   CloudOff,
   Download,
   Home,
@@ -30,10 +29,12 @@ import {
 } from "@/data/agronexData";
 import {
   buildProgressRecord,
+  createEmptyDailyRecord,
   createSyncRecord,
   loadAgroLocalSnapshot,
   saveAgroLocalSnapshot,
   syncPendingRecords,
+  type DailyRecord,
   type LocalPlanningRecord,
   type LocalProgressRecord,
   type SyncQueueRecord,
@@ -86,6 +87,9 @@ export function AgroNexApp() {
   const [sessionWorkers, setSessionWorkers] = useState<Worker[]>(localSnapshot.workers);
   const [progressRecords, setProgressRecords] = useState<LocalProgressRecord[]>(localSnapshot.progressRecords);
   const [planningRecords, setPlanningRecords] = useState<LocalPlanningRecord[]>(localSnapshot.planningRecords);
+  const [dailyRecords, setDailyRecords] = useState<Record<string, DailyRecord>>(localSnapshot.dailyRecords);
+  const [operationalDate] = useState(localSnapshot.operationalDate);
+  const [operationalNotice] = useState<string | null>(localSnapshot.operationalNotice);
   const [syncQueue, setSyncQueue] = useState<SyncQueueRecord[]>(localSnapshot.syncQueue);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(localSnapshot.lastSyncAt);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
@@ -98,10 +102,13 @@ export function AgroNexApp() {
       workers: sessionWorkers,
       progressRecords,
       planningRecords,
+      dailyRecords,
+      operationalDate,
+      operationalNotice,
       syncQueue,
       lastSyncAt,
     });
-  }, [lastSyncAt, planningRecords, progressRecords, sessionCrews, sessionLeaders, sessionWorkers, syncQueue]);
+  }, [dailyRecords, lastSyncAt, operationalDate, operationalNotice, planningRecords, progressRecords, sessionCrews, sessionLeaders, sessionWorkers, syncQueue]);
 
   useEffect(() => {
     const handleOffline = () => {
@@ -200,26 +207,97 @@ export function AgroNexApp() {
       leaderId: selectedLeader.id,
       leaderName: selectedLeader.name,
       crew,
+      date: operationalDate,
     });
     const present = submission.workers.filter((worker) => worker.attendance === "Presente");
+    const percentage = crew.goal > 0 ? Math.min(100, Math.round((submission.progress / crew.goal) * 100)) : 0;
 
     setSessionWorkers((current) => current.map((worker) => submission.workers.find((item) => item.id === worker.id) ?? worker));
     setSessionCrews((current) => current.map((item) => item.leaderId !== selectedLeader.id ? item : {
       ...item,
       progress: submission.progress,
       remaining: Math.max(0, Number((item.goal - submission.progress).toFixed(2))),
-      percentage: Math.min(100, Math.round((submission.progress / item.goal) * 100)),
+      percentage,
       hoursPerWorker: submission.hours,
       presentWorkers: present.length,
       absentWorkers: submission.workers.length - present.length,
       manHours: present.reduce((sum, worker) => sum + worker.hoursWorked, 0),
+      status: percentage >= 100 ? "Terminado" : submission.progress > 0 ? "En proceso" : "Pendiente",
     }));
     setProgressRecords((current) => [record, ...current]);
+    setDailyRecords((current) => {
+      const day = current[operationalDate] ?? createEmptyDailyRecord();
+      return {
+        ...current,
+        [operationalDate]: {
+          ...day,
+          progress: [record, ...day.progress.filter((item) => item.leaderId !== selectedLeader.id)],
+          attendance: [...submission.workers],
+          workerOutputs: [...submission.workers],
+          pending: record.remaining > 0
+            ? [
+                {
+                  crewId: record.crewId,
+                  leaderId: record.leaderId,
+                  leaderName: record.leaderName,
+                  labor: record.labor,
+                  sector: record.sector,
+                  remaining: record.remaining,
+                  unit: record.unit,
+                  date: record.date,
+                },
+                ...day.pending.filter((item) => item.crewId !== record.crewId),
+              ]
+            : day.pending.filter((item) => item.crewId !== record.crewId),
+        },
+      };
+    });
     enqueueSync(createSyncRecord("avance", submission.saveMode === "partial" ? "update" : "create", record));
   };
 
   const savePlanningRecord = (record: LocalPlanningRecord) => {
-    setPlanningRecords((current) => [record, ...current]);
+    setPlanningRecords((current) => [record, ...current.filter((item) => !(item.date === record.date && item.leaderId === record.leaderId))]);
+    setDailyRecords((current) => {
+      const day = current[record.date] ?? createEmptyDailyRecord();
+      return {
+        ...current,
+        [record.date]: {
+          ...day,
+          tasks: [record, ...day.tasks.filter((item) => item.leaderId !== record.leaderId)],
+        },
+      };
+    });
+    if (record.date === operationalDate) {
+      const existingProgress = progressRecords.find((item) => item.date === record.date && item.leaderId === record.leaderId);
+      const progress = existingProgress?.progress ?? 0;
+      const remaining = Math.max(0, Number((record.goal - progress).toFixed(2)));
+      if (!existingProgress) {
+        setSessionWorkers((current) => current.map((worker) => worker.crewId === record.crewId ? {
+          ...worker,
+          attendance: "Ausente" as const,
+          dailyOutput: 0,
+          hoursWorked: 0,
+          observation: "",
+          unit: record.unit,
+        } : worker));
+      }
+      setSessionCrews((current) => current.map((crew) => crew.id !== record.crewId ? crew : {
+        ...crew,
+        labor: record.labor,
+        crop: record.crop,
+        sector: record.sector,
+        goal: record.goal,
+        progress,
+        remaining,
+        unit: record.unit,
+        percentage: record.goal > 0 ? Math.min(100, Math.round((progress / record.goal) * 100)) : 0,
+        presentWorkers: existingProgress ? crew.presentWorkers : 0,
+        absentWorkers: existingProgress ? crew.absentWorkers : crew.totalWorkers,
+        hoursPerWorker: existingProgress ? crew.hoursPerWorker : 0,
+        manHours: existingProgress ? crew.manHours : 0,
+        status: progress >= record.goal && record.goal > 0 ? "Terminado" : progress > 0 ? "En proceso" : "Pendiente",
+      }));
+    }
     enqueueSync(createSyncRecord("tarea", "create", record));
   };
 
@@ -309,6 +387,9 @@ export function AgroNexApp() {
         workers: sessionWorkers,
         progressRecords,
         planningRecords,
+        dailyRecords,
+        operationalDate,
+        operationalNotice,
         syncQueue,
         lastSyncAt,
         isOnline,
@@ -352,7 +433,7 @@ function Welcome({ onLeader, onSupervisor }: { onLeader: () => void; onSuperviso
           <div className="mb-6 grid size-20 place-items-center rounded-[26px] border border-white/15 bg-white/10 shadow-2xl backdrop-blur">
             <UsersRound size={40} className="text-[#bce8cb]" strokeWidth={1.8} />
           </div>
-          <h1 className="text-4xl font-extrabold leading-[1.08] tracking-[-.035em] sm:text-5xl">Tu operación de campo, clara cada día.</h1>
+          <h1 className="text-3xl font-extrabold leading-[1.08] tracking-[-.03em] sm:text-4xl">Tu operación de campo, clara cada día.</h1>
           <p className="mt-5 max-w-xs text-[15px] leading-7 text-white/65">Registra avances, controla cuadrillas y planifica la siguiente jornada.</p>
         </div>
 
@@ -459,8 +540,7 @@ function AppShell({
           )}
 
           <div className="absolute left-1/2 -translate-x-1/2 text-center md:hidden">
-            <p className="text-sm font-bold">{title}</p>
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-white/50">AgroNex</p>
+            <p className="max-w-[150px] truncate text-sm font-bold">{title}</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -616,11 +696,10 @@ function NavButton({
 }
 
 function ConnectionPill({ isOnline, pendingCount }: { isOnline: boolean; pendingCount: number }) {
-  const Icon = isOnline ? Cloud : CloudOff;
   return (
-    <span className={`flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 text-[10px] font-extrabold ${isOnline ? "bg-white/10 text-white" : "bg-[#f4ba50] text-[#173c2d]"}`}>
-      <Icon size={15} />
-      <span>{isOnline ? "En línea" : "Sin conexión"}</span>
+    <span className={`flex min-h-9 items-center gap-1.5 rounded-xl px-2 text-[10px] font-extrabold ${isOnline ? "bg-white/5 text-white" : "bg-[#f4ba50] text-[#173c2d]"}`} title={isOnline ? "En línea" : "Sin conexión"}>
+      {isOnline ? <span className="size-2 rounded-full bg-[#85e0a7]" /> : <CloudOff size={14} />}
+      <span className={isOnline ? "sr-only" : ""}>{isOnline ? "En línea" : "Sin conexión"}</span>
       {pendingCount > 0 && <span className="rounded-full bg-white/20 px-1.5 py-0.5">{pendingCount}</span>}
     </span>
   );

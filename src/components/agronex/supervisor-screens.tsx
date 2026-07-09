@@ -1,35 +1,97 @@
 ﻿"use client";
 
+import type { FormEvent } from "react";
 import { useState } from "react";
 import { AlertTriangle, ArrowRight, CalendarPlus, Check, CheckCircle2, Clock3, ClipboardList, Cloud, CloudOff, LogOut, Map, MoreHorizontal, Plus, RefreshCw, Settings2, Sparkles, TrendingUp, UserCheck, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
-import { catalog, weeklyPerformance, type AppScreen, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
+import { catalog, type AppScreen, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
 import { DonutProgress, InfoStat, MetricCard, ProgressBar, ScreenHeading, SectionTitle, StatusBadge } from "./ui";
 import { useAgroSession } from "./session-context";
-import { createLocalId, getFortnightRecords, getLocalDate, getPendingSyncCount, getRecordsForDate } from "@/lib/agronex-offline";
+import { addDays, createLocalId, formatDateLabel, getFortnightRange, getFortnightRecords, getLocalDate, getPendingSyncCount, getRecordsForDate, getRecordsInRange, type LocalPlanningRecord } from "@/lib/agronex-offline";
 import { LeaderActionMenu, WorkerActionMenu } from "./management-actions";
 
 export function SupervisorDashboard({ onNavigate }: { onNavigate: (screen: AppScreen) => void }) {
-  const { crews, leaders } = useAgroSession();
+  const { crews, leaders, operationalDate, operationalNotice } = useAgroSession();
   const present = crews.reduce((sum, crew) => sum + crew.presentWorkers, 0);
   const total = crews.reduce((sum, crew) => sum + crew.totalWorkers, 0);
   const hours = crews.reduce((sum, crew) => sum + crew.manHours, 0);
-  const overall = Math.round(crews.reduce((sum, crew) => sum + crew.percentage, 0) / crews.length);
+  const overall = crews.length ? Math.round(crews.reduce((sum, crew) => sum + crew.percentage, 0) / crews.length) : 0;
   const pendingTotal = crews.reduce((sum, crew) => sum + (crew.remaining > 0 ? 1 : 0), 0);
-  return <div className="space-y-6"><ScreenHeading eyebrow="Panel supervisor" title="Operación del día" description="Avance global, alertas y planificación de todas las labores." /><div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><MetricCard label="Encargados activos" value={String(leaders.length)} icon={UserCheck} onClick={() => onNavigate("encargados")} /><MetricCard label="Cuadrillas activas" value={String(crews.length)} icon={UsersRound} tone="blue" onClick={() => onNavigate("cuadrillas")} /><MetricCard label="Trabajadores presentes" value={String(present)} icon={Users} onClick={() => onNavigate("trabajadores")} /><MetricCard label="Ausentes" value={String(total - present)} icon={UserMinus} tone="red" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Horas hombre" value={String(hours)} icon={Clock3} tone="blue" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Avance general" value={`${overall}%`} icon={TrendingUp} tone="gold" onClick={() => onNavigate("avances")} /><MetricCard label="Pendientes acumulados" value={String(pendingTotal)} icon={AlertTriangle} tone="red" onClick={() => onNavigate("pendientes")} /></div><div className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por encargado" action={<button onClick={() => onNavigate("avances")} className="ag-text-button">Ver avances <ArrowRight size={15} /></button>} /><div className="space-y-5">{crews.map((crew) => <ProgressRow key={crew.id} label={`${crew.leaderName} · ${crew.labor}`} value={crew.percentage} detail={crew.sector} color={crew.percentage < 70 ? "#c4634e" : crew.percentage === 100 ? "#1f9d67" : "#d79a29"} />)}</div></section><section className="ag-card flex items-center justify-between gap-4 p-5 sm:p-6 xl:flex-col xl:text-center"><div><p className="text-sm font-bold text-[#60736a]">Cumplimiento global</p><p className="mt-2 text-xs leading-5 text-[#819087]">Promedio de las labores activas</p></div><DonutProgress value={overall} size={126} /></section></div><div className="grid gap-5 lg:grid-cols-2"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por labor" /><div className="space-y-4">{crews.map((crew) => <ProgressRow key={crew.id} label={crew.labor} value={crew.percentage} detail={`${crew.progress} de ${crew.goal} ${crew.unit}`} />)}</div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Productividad por cuadrilla" /><div className="space-y-4">{crews.map((crew) => <div key={crew.id} className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]"><UsersRound size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#355447]">{crew.name}</p><p className="mt-0.5 text-xs text-[#819087]">{crew.presentWorkers} presentes · {crew.manHours} h</p></div><strong className="whitespace-nowrap text-sm text-[#173c2d] tabular-nums">{formatNumber(crew.progress / Math.max(1, crew.presentWorkers))}</strong></div>)}</div></section></div><div className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Alertas de bajo rendimiento" action={<button onClick={() => onNavigate("pendientes")} className="ag-text-button">Ver pendientes <ArrowRight size={15} /></button>} /><div className="divide-y divide-[#edf1ee]">{crews.filter((crew) => crew.remaining > 0).map((crew) => <div key={crew.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]"><AlertTriangle size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#294a3b]">{crew.leaderName} · {crew.labor}</p><p className="mt-0.5 text-xs text-[#7c8b83]">Faltan {crew.remaining} {crew.unit} en {crew.sector}</p></div><strong className="whitespace-nowrap text-xs text-[#bd513c] tabular-nums">{crew.percentage}%</strong></div>)}</div></section><section className="rounded-2xl bg-[linear-gradient(135deg,#1a5b40,#267852)] p-5 text-white shadow-lg shadow-[#164a35]/15"><span className="grid size-10 place-items-center rounded-xl bg-white/15"><Sparkles size={20} /></span><p className="mt-5 text-xs font-bold uppercase tracking-widest text-white/60">Planificación de mañana</p><p className="mt-2 text-sm font-semibold leading-6">Priorizar labores con pendientes y reforzar cuadrillas bajo meta.</p><button onClick={() => onNavigate("planificacion")} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 text-xs font-extrabold text-[#174c37]">Planificar tareas <ArrowRight size={15} /></button></section></div></div>;
+  return <div className="space-y-6"><ScreenHeading eyebrow="Panel supervisor" title="Operación del día" description={`Fecha operativa: ${formatDateLabel(operationalDate)}.`} />{operationalNotice && <div className="rounded-2xl bg-[#fff8e7] px-4 py-3 text-sm font-bold text-[#8b650b]">{operationalNotice}</div>}<div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><MetricCard label="Encargados activos" value={String(leaders.length)} icon={UserCheck} onClick={() => onNavigate("encargados")} /><MetricCard label="Cuadrillas activas" value={String(crews.length)} icon={UsersRound} tone="blue" onClick={() => onNavigate("cuadrillas")} /><MetricCard label="Trabajadores presentes" value={String(present)} icon={Users} onClick={() => onNavigate("trabajadores")} /><MetricCard label="Ausentes" value={String(total - present)} icon={UserMinus} tone="red" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Horas hombre" value={String(hours)} icon={Clock3} tone="blue" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Avance general" value={`${overall}%`} icon={TrendingUp} tone="gold" onClick={() => onNavigate("avances")} /><MetricCard label="Pendientes acumulados" value={String(pendingTotal)} icon={AlertTriangle} tone="red" onClick={() => onNavigate("pendientes")} /></div><div className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por encargado" action={<button onClick={() => onNavigate("avances")} className="ag-text-button">Ver avances <ArrowRight size={15} /></button>} /><div className="space-y-5">{crews.length === 0 ? <EmptyBlock text="Planifica una tarea para comenzar el registro del día." /> : crews.map((crew) => <ProgressRow key={crew.id} label={`${crew.leaderName} · ${crew.labor}`} value={crew.percentage} detail={crew.sector} color={crew.percentage < 70 ? "#c4634e" : crew.percentage === 100 ? "#1f9d67" : "#d79a29"} />)}</div></section><section className="ag-card flex items-center justify-between gap-4 p-5 sm:p-6 xl:flex-col xl:text-center"><div><p className="text-sm font-bold text-[#60736a]">Cumplimiento global</p><p className="mt-2 text-xs leading-5 text-[#819087]">Promedio de las labores activas</p></div><DonutProgress value={overall} size={106} /></section></div><div className="grid gap-5 lg:grid-cols-2"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por labor" /><div className="space-y-4">{crews.map((crew) => <ProgressRow key={crew.id} label={crew.labor} value={crew.percentage} detail={`${crew.progress} de ${crew.goal} ${crew.unit}`} />)}</div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Productividad por cuadrilla" /><div className="space-y-4">{crews.map((crew) => <div key={crew.id} className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]"><UsersRound size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#355447]">{crew.name}</p><p className="mt-0.5 text-xs text-[#819087]">{crew.presentWorkers} presentes · {crew.manHours} h</p></div><strong className="whitespace-nowrap text-sm text-[#173c2d] tabular-nums">{formatNumber(crew.progress / Math.max(1, crew.presentWorkers))}</strong></div>)}</div></section></div><div className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Alertas de bajo rendimiento" action={<button onClick={() => onNavigate("pendientes")} className="ag-text-button">Ver pendientes <ArrowRight size={15} /></button>} /><div className="divide-y divide-[#edf1ee]">{crews.filter((crew) => crew.remaining > 0).length === 0 ? <EmptyBlock text="Sin pendientes acumulados." /> : crews.filter((crew) => crew.remaining > 0).map((crew) => <div key={crew.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]"><AlertTriangle size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#294a3b]">{crew.leaderName} · {crew.labor}</p><p className="mt-0.5 text-xs text-[#7c8b83]">Faltan {crew.remaining} {crew.unit} en {crew.sector}</p></div><strong className="whitespace-nowrap text-xs text-[#bd513c] tabular-nums">{crew.percentage}%</strong></div>)}</div></section><section className="rounded-2xl bg-[linear-gradient(135deg,#1a5b40,#267852)] p-5 text-white shadow-lg shadow-[#164a35]/15"><span className="grid size-10 place-items-center rounded-xl bg-white/15"><Sparkles size={20} /></span><p className="mt-5 text-xs font-bold uppercase tracking-widest text-white/60">Planificación de mañana</p><p className="mt-2 text-sm font-semibold leading-6">Priorizar labores con pendientes y reforzar cuadrillas bajo meta.</p><button onClick={() => onNavigate("planificacion")} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 text-xs font-extrabold text-[#174c37]">Planificar tareas <ArrowRight size={15} /></button></section></div></div>;
 }
 
 export function PlanningScreen() {
-  const { crews, leaders: sessionLeaders, isOnline, savePlanningRecord } = useAgroSession();
-  const [leaderId, setLeaderId] = useState(sessionLeaders[0]?.id ?? "");
-  const selectedCrew = crews.find((crew) => crew.leaderId === leaderId)!;
-  const [goal, setGoal] = useState(String(selectedCrew.goal + selectedCrew.remaining));
-  const [date, setDate] = useState(getLocalDate());
-  const [priority, setPriority] = useState(selectedCrew.percentage < 70 ? "Alta" : "Media");
-  const [observation, setObservation] = useState(`Recuperar ${selectedCrew.remaining} ${selectedCrew.unit} pendientes.`);
+  const { crews, planningRecords, dailyRecords, operationalDate, isOnline, savePlanningRecord } = useAgroSession();
+  const [date, setDate] = useState(operationalDate || getLocalDate());
+  const [editingCrewId, setEditingCrewId] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState("");
-  const field = "mt-2 min-h-12 w-full rounded-xl border border-[#dbe5de] bg-white px-3.5 text-sm font-medium text-[#244637] outline-none focus:border-[#238358] focus:ring-4 focus:ring-[#238358]/10";
-  const changeLeader = (id: string) => { setLeaderId(id); const next = crews.find((crew) => crew.leaderId === id)!; setGoal(String(next.goal + next.remaining)); setPriority(next.percentage < 70 ? "Alta" : "Media"); setObservation(`Recuperar ${next.remaining} ${next.unit} pendientes.`); };
-  return <div><ScreenHeading eyebrow="Asignación operativa" title="Planificación" description="Asigna tareas para hoy o para la próxima jornada." /><div className="grid gap-5 lg:grid-cols-[1fr_.72fr]"><form onSubmit={(event) => { event.preventDefault(); savePlanningRecord({ id: createLocalId("task"), date, createdAt: new Date().toISOString(), leaderId, leaderName: selectedCrew.leaderName, crewId: selectedCrew.id, crewName: selectedCrew.name, labor: selectedCrew.labor, crop: selectedCrew.crop, sector: selectedCrew.sector, goal: Number(goal), unit: selectedCrew.unit, priority, observation }); setSavedMessage(isOnline ? "Tarea asignada correctamente." : "Tarea guardada sin conexión."); window.setTimeout(() => setSavedMessage(""), 4000); }} className="ag-card p-5 sm:p-6"><div className="grid gap-4 sm:grid-cols-2"><label className="ag-label">Fecha<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={field} /></label><Select label="Encargado" value={leaderId} onChange={changeLeader} items={sessionLeaders.map((item) => ({ value: item.id, label: item.name }))} className={field} /><Select label="Labor" value={selectedCrew.labor} items={[{ value: selectedCrew.labor, label: selectedCrew.labor }]} className={field} /><Select label="Cultivo" value={selectedCrew.crop} items={[{ value: selectedCrew.crop, label: selectedCrew.crop }]} className={field} /><Select label="Sector" value={selectedCrew.sector} items={[{ value: selectedCrew.sector, label: selectedCrew.sector }]} className={field} /><Select label="Cuadrilla" value={selectedCrew.id} items={[{ value: selectedCrew.id, label: selectedCrew.name }]} className={field} /><label className="ag-label">Meta sugerida<input type="number" value={goal} onChange={(event) => setGoal(event.target.value)} className={field} /></label><Select label="Unidad" value={selectedCrew.unit} items={[{ value: selectedCrew.unit, label: selectedCrew.unit }]} className={field} /><Select label="Prioridad" value={priority} onChange={setPriority} items={["Alta", "Media", "Normal"].map((item) => ({ value: item, label: item }))} className={field} /><label className="ag-label sm:col-span-2">Observación<textarea className={`${field} min-h-24 resize-none py-3`} value={observation} onChange={(event) => setObservation(event.target.value)} /></label></div>{savedMessage && <Success text={savedMessage} />}<button className="ag-primary mt-6 w-full" type="submit"><CalendarPlus size={18} />Guardar tarea</button></form><aside className="space-y-4"><section className="rounded-2xl bg-[#173c2d] p-5 text-white"><p className="text-xs font-bold uppercase tracking-wider text-white/55">Meta sugerida para mañana</p><p className="mt-3 text-3xl font-extrabold">{goal} {selectedCrew.unit}</p><div className="mt-5 space-y-3 rounded-xl bg-white/10 p-4"><PlanLine label="Meta base" value={`${selectedCrew.goal} ${selectedCrew.unit}`} /><PlanLine label="Pendiente anterior" value={`${selectedCrew.remaining} ${selectedCrew.unit}`} /><PlanLine label="Meta sugerida" value={`${selectedCrew.goal + selectedCrew.remaining} ${selectedCrew.unit}`} strong /></div></section><section className="ag-card p-5"><p className="text-xs font-bold uppercase tracking-wider text-[#2d8a61]">Arrastre de pendiente</p><p className="mt-2 text-sm leading-6 text-[#60736a]">El pendiente de hoy se suma visualmente a la meta base de la siguiente jornada.</p></section></aside></div></div>;
+  const [usePending, setUsePending] = useState(false);
+  const selectedCrew = crews.find((crew) => crew.id === editingCrewId) ?? null;
+  const dayTasks = planningRecords.filter((record) => record.date === date);
+  const pending = dailyRecords[date]?.pending ?? Object.values(dailyRecords).flatMap((record) => record.pending);
+  const uniquePending = pending.filter((item, index, list) => list.findIndex((record) => record.crewId === item.crewId) === index);
+  const highPriority = dayTasks.filter((task) => task.priority === "Alta").length;
+
+  const copyPreviousDay = () => {
+    const previousDate = addDays(date, -1);
+    const previous = planningRecords.filter((record) => record.date === previousDate);
+    previous.forEach((record) => savePlanningRecord({ ...record, id: createLocalId("task"), date, createdAt: new Date().toISOString(), observation: `Plan basado en ${formatDateLabel(previousDate)}.` }));
+    setSavedMessage(previous.length ? "Tareas copiadas. Puedes ajustarlas desde cada tarjeta." : "No hay tareas del día anterior para copiar.");
+    window.setTimeout(() => setSavedMessage(""), 4000);
+  };
+
+  return (
+    <div className="space-y-5">
+      <ScreenHeading eyebrow="Asignación operativa" title="Planificación" description="Centro de tareas por fecha, encargado y pendiente acumulado." />
+
+      <section className="ag-card p-5">
+        <label className="ag-label block">Fecha de planificación<input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="ag-field" /></label>
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <QuickButton label="Hoy" onClick={() => setDate(operationalDate)} />
+          <QuickButton label="Mañana" onClick={() => setDate(addDays(operationalDate, 1))} />
+          <QuickButton label="Copiar día anterior" onClick={copyPreviousDay} />
+          <QuickButton label="Usar pendientes" active={usePending} onClick={() => setUsePending((value) => !value)} />
+        </div>
+      </section>
+
+      {savedMessage && <Success text={savedMessage} />}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard label="Tareas programadas" value={String(dayTasks.length)} icon={ClipboardList} />
+        <MetricCard label="Encargados asignados" value={String(new Set(dayTasks.map((task) => task.leaderId)).size)} icon={UserCheck} tone="green" />
+        <MetricCard label="Pendientes incorporados" value={String(usePending ? uniquePending.length : 0)} icon={AlertTriangle} tone="red" />
+        <MetricCard label="Prioridad alta" value={String(highPriority)} icon={Sparkles} tone="gold" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {crews.map((crew) => {
+          const task = dayTasks.find((record) => record.crewId === crew.id);
+          const pendingItem = uniquePending.find((record) => record.crewId === crew.id);
+          const suggestedGoal = Number((crew.goal + (usePending ? pendingItem?.remaining ?? 0 : 0)).toFixed(2));
+          return (
+            <article key={crew.id} className="ag-card p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#2d8a61]">{crew.leaderName}</p>
+                  <h2 className="mt-2 truncate text-lg font-extrabold text-[#173c2d]">{task?.labor ?? crew.labor}</h2>
+                  <p className="mt-1 text-xs text-[#718078]">{crew.sector} · {crew.name}</p>
+                </div>
+                <StatusBadge status={task ? "En proceso" : pendingItem ? "Pendiente" : "Pendiente"} />
+              </div>
+              <div className="my-5 grid grid-cols-2 gap-3 rounded-xl bg-[#f6f8f6] p-3">
+                <InfoStat label="Estado" value={task ? "Programado" : "Sin planificar"} />
+                <InfoStat label="Meta sugerida" value={`${suggestedGoal} ${crew.unit}`} />
+                <InfoStat label="Pendiente" value={`${pendingItem?.remaining ?? crew.remaining} ${crew.unit}`} />
+                <InfoStat label="Prioridad" value={crew.remaining > 0 ? "Alta" : "Media"} />
+              </div>
+              <button onClick={() => setEditingCrewId(crew.id)} className="ag-primary w-full"><CalendarPlus size={17} />Planificar</button>
+            </article>
+          );
+        })}
+      </div>
+
+      {selectedCrew && <PlanTaskModal crew={selectedCrew} date={date} usePending={usePending} pending={uniquePending.find((record) => record.crewId === selectedCrew.id)?.remaining ?? selectedCrew.remaining} onClose={() => setEditingCrewId(null)} onSave={(record) => { savePlanningRecord(record); setSavedMessage(isOnline ? "Tarea asignada correctamente." : "Tarea guardada sin conexión."); setEditingCrewId(null); window.setTimeout(() => setSavedMessage(""), 4000); }} />}
+    </div>
+  );
 }
 
 export function AdvancesScreen() { const { crews } = useAgroSession(); return <div><ScreenHeading eyebrow="Seguimiento global" title="Avances" description="Cumplimiento por encargado, labor, cuadrilla y sector." /><div className="grid gap-5 lg:grid-cols-2"><ProgressPanel title="Por encargado" items={crews.map((crew) => ({ label: crew.leaderName, detail: crew.labor, value: crew.percentage }))} /><ProgressPanel title="Por labor" items={crews.map((crew) => ({ label: crew.labor, detail: crew.sector, value: crew.percentage }))} /><ProgressPanel title="Por cuadrilla" items={crews.map((crew) => ({ label: crew.name, detail: `${crew.presentWorkers} presentes`, value: crew.percentage }))} /><ProgressPanel title="Por sector" items={crews.map((crew) => ({ label: crew.sector, detail: crew.crop, value: crew.percentage }))} /></div><section className="ag-card mt-5 p-5 sm:p-6"><SectionTitle title="Pendientes acumulados" /><div className="grid gap-3 sm:grid-cols-2">{crews.filter((crew) => crew.remaining > 0).map((crew) => <div key={crew.id} className="rounded-xl bg-[#fff6f3] p-4"><p className="text-sm font-bold text-[#5d443d]">{crew.leaderName} · {crew.sector}</p><p className="mt-1 text-xs text-[#8b6e66]">{crew.remaining} {crew.unit} por completar</p></div>)}</div></section></div>; }
@@ -39,7 +101,7 @@ export function SupervisorReports() {
   const present = crews.reduce((sum, crew) => sum + crew.presentWorkers, 0);
   const total = crews.reduce((sum, crew) => sum + crew.totalWorkers, 0);
   const ranked = [...workers].filter((worker) => worker.attendance === "Presente").sort((a, b) => b.dailyOutput - a.dailyOutput).slice(0, 6);
-  return <div><ScreenHeading eyebrow="Análisis operativo" title="Reportes" description="Productividad, asistencia, horas hombre y comparativo semanal." /><div className="grid gap-5 lg:grid-cols-2"><ProgressPanel title="Productividad por encargado" items={crews.map((crew) => ({ label: crew.leaderName, detail: crew.labor, value: crew.percentage }))} /><ProgressPanel title="Productividad por cuadrilla" items={crews.map((crew) => ({ label: crew.name, detail: `${formatNumber(crew.progress / crew.presentWorkers)} ${crew.unit}/persona`, value: crew.percentage }))} /><section className="ag-card p-5 sm:p-6"><SectionTitle title="Asistencia por cuadrilla" /><div className="space-y-4">{crews.map((crew) => <div key={crew.id}><div className="flex justify-between text-xs"><span className="font-semibold text-[#5b7065]">{crew.name}</span><strong>{crew.presentWorkers}/{crew.totalWorkers}</strong></div><div className="mt-2"><ProgressBar value={Math.round(crew.presentWorkers / crew.totalWorkers * 100)} color="#5687bc" /></div></div>)}</div><div className="mt-5 grid grid-cols-3 gap-3"><InfoStat label="Total" value={String(total)} /><InfoStat label="Presentes" value={String(present)} /><InfoStat label="Ausentes" value={String(total - present)} /></div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Horas hombre" /><p className="text-3xl font-extrabold text-[#173c2d]">{crews.reduce((sum, crew) => sum + crew.manHours, 0)} h</p><div className="mt-5 space-y-3">{crews.map((crew) => <div key={crew.id} className="flex justify-between text-sm"><span className="text-[#60736a]">{crew.leaderName}</span><strong>{crew.manHours} h</strong></div>)}</div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Ranking de trabajadores" /><div className="space-y-3">{ranked.map((worker, index) => <div key={worker.id} className="flex items-center gap-3"><span className="grid size-7 place-items-center rounded-full bg-[#eff4f0] text-xs font-bold">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#355447]">{worker.name}</span><strong className="text-xs">{worker.dailyOutput} {worker.unit}</strong></div>)}</div></section><WeeklyComparison /></div></div>;
+  return <div><ScreenHeading eyebrow="Análisis operativo" title="Reportes" description="Productividad, asistencia, horas hombre y rendimiento quincenal." /><div className="grid gap-5 lg:grid-cols-2"><ProgressPanel title="Productividad por encargado" items={crews.map((crew) => ({ label: crew.leaderName, detail: crew.labor, value: crew.percentage }))} /><ProgressPanel title="Productividad por cuadrilla" items={crews.map((crew) => ({ label: crew.name, detail: `${formatNumber(crew.progress / Math.max(1, crew.presentWorkers))} ${crew.unit}/persona`, value: crew.percentage }))} /><section className="ag-card p-5 sm:p-6"><SectionTitle title="Asistencia por cuadrilla" /><div className="space-y-4">{crews.map((crew) => <div key={crew.id}><div className="flex justify-between text-xs"><span className="font-semibold text-[#5b7065]">{crew.name}</span><strong>{crew.presentWorkers}/{crew.totalWorkers}</strong></div><div className="mt-2"><ProgressBar value={crew.totalWorkers ? Math.round(crew.presentWorkers / crew.totalWorkers * 100) : 0} color="#5687bc" /></div></div>)}</div><div className="mt-5 grid grid-cols-3 gap-3"><InfoStat label="Total" value={String(total)} /><InfoStat label="Presentes" value={String(present)} /><InfoStat label="Ausentes" value={String(total - present)} /></div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Horas hombre" /><p className="text-2xl font-extrabold text-[#173c2d]">{crews.reduce((sum, crew) => sum + crew.manHours, 0)} h</p><div className="mt-5 space-y-3">{crews.map((crew) => <div key={crew.id} className="flex justify-between text-sm"><span className="text-[#60736a]">{crew.leaderName}</span><strong>{crew.manHours} h</strong></div>)}</div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Ranking de trabajadores" /><div className="space-y-3">{ranked.length === 0 ? <EmptyBlock text="Sin trabajadores presentes para ordenar." /> : ranked.map((worker, index) => <div key={worker.id} className="flex items-center gap-3"><span className="grid size-7 place-items-center rounded-full bg-[#eff4f0] text-xs font-bold">{index + 1}</span><span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#355447]">{worker.name}</span><strong className="text-xs">{worker.dailyOutput} {worker.unit}</strong></div>)}</div></section><FortnightComparison /></div></div>;
 }
 
 export function LeadersScreen() {
@@ -52,7 +114,7 @@ export function CrewsScreen() { const { crews } = useAgroSession(); return <div>
 
 export function GlobalWorkersScreen() {
   const { crews, workers, leaders: sessionLeaders } = useAgroSession();
-  const present = workers.filter((worker) => worker.attendance === "Presente"); const hours = workers.reduce((sum, worker) => sum + worker.hoursWorked, 0); const average = present.reduce((sum, worker) => sum + worker.dailyOutput, 0) / present.length;
+  const present = workers.filter((worker) => worker.attendance === "Presente"); const hours = workers.reduce((sum, worker) => sum + worker.hoursWorked, 0); const average = present.reduce((sum, worker) => sum + worker.dailyOutput, 0) / Math.max(1, present.length);
   return <div><ScreenHeading eyebrow="Personal de campo" title="Trabajadores" description="Asistencia y rendimiento agrupado por encargado y cuadrilla." /><div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5"><MetricCard label="Total trabajadores" value={String(workers.length)} icon={Users} /><MetricCard label="Presentes" value={String(present.length)} icon={UserCheck} /><MetricCard label="Ausentes" value={String(workers.length - present.length)} icon={UserMinus} tone="red" /><MetricCard label="Promedio rendimiento" value={formatNumber(average)} icon={TrendingUp} tone="gold" /><MetricCard label="Horas hombre" value={String(hours)} icon={Clock3} tone="blue" /></div><div className="space-y-5">{sessionLeaders.map((leader) => { const crew = crews.find((item) => item.leaderId === leader.id) ?? crews.find((item) => item.id === leader.crewId)!; const crewWorkers = workers.filter((worker) => worker.assignedTo === leader.id); return <section key={leader.id} className="ag-card p-5"><SectionTitle title={`${leader.name} · ${crew.name}`} /><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{crewWorkers.map((worker) => <WorkerSummary key={worker.id} worker={worker} />)}</div></section>; })}</div></div>;
 }
 
@@ -83,14 +145,111 @@ export function ConfigScreen() {
 
 export function SupervisorMore({ onNavigate, onExit }: { onNavigate: (screen: AppScreen) => void; onExit: () => void }) { const items = [{ label: "Encargados", description: "Responsables de labor", icon: UserCheck, screen: "encargados" as const }, { label: "Cuadrillas", description: "Dotación y productividad", icon: UsersRound, screen: "cuadrillas" as const }, { label: "Trabajadores", description: "Personal y asistencia global", icon: Users, screen: "trabajadores" as const }, { label: "Sectores", description: "Operación por ubicación", icon: Map, screen: "sectores" as const }, { label: "Pendientes", description: "Continuidad para mañana", icon: ClipboardList, screen: "pendientes" as const }, { label: "Sincronización", description: "Pendientes y estado offline", icon: RefreshCw, screen: "sincronizacion" as const }, { label: "Configuración", description: "Catálogos del sistema", icon: Settings2, screen: "configuracion" as const }]; return <div><ScreenHeading eyebrow="Panel supervisor" title="Más" description="Gestión completa de la operación." /><div className="ag-card divide-y divide-[#edf1ee]">{items.map(({ label, description, icon: Icon, screen }) => <button key={label} onClick={() => onNavigate(screen)} className="flex min-h-[72px] w-full items-center gap-4 px-5 text-left hover:bg-[#f7f9f7]"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]"><Icon size={19} /></span><span className="flex-1"><strong className="block text-sm text-[#294a3b]">{label}</strong><span className="mt-1 block text-xs text-[#7b8981]">{description}</span></span><ArrowRight size={17} className="text-[#8d9992]" /></button>)}<button onClick={onExit} className="flex min-h-[72px] w-full items-center gap-4 px-5 text-left hover:bg-[#fff6f3]"><span className="grid size-10 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]"><LogOut size={19} /></span><span><strong className="block text-sm text-[#6d3d34]">Salir</strong><span className="mt-1 block text-xs text-[#9a746c]">Volver a la bienvenida</span></span></button></div><p className="mt-8 text-center text-[10px] font-semibold tracking-[.14em] text-[#9aa69f]">by Zidnex Digital</p></div>; }
 
+function PlanTaskModal({ crew, date, pending, usePending, onClose, onSave }: { crew: Crew; date: string; pending: number; usePending: boolean; onClose: () => void; onSave: (record: LocalPlanningRecord) => void }) {
+  const suggestedGoal = Number((crew.goal + (usePending ? pending : 0)).toFixed(2));
+  const [labor, setLabor] = useState(crew.labor);
+  const [crop, setCrop] = useState(crew.crop);
+  const [sector, setSector] = useState(crew.sector);
+  const [goal, setGoal] = useState(String(suggestedGoal));
+  const [unit, setUnit] = useState(crew.unit);
+  const [priority, setPriority] = useState(crew.remaining > 0 || pending > 0 ? "Alta" : "Media");
+  const [observation, setObservation] = useState(pending > 0 ? `Recuperar ${pending} ${crew.unit} pendientes.` : "Tarea programada para la jornada.");
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    onSave({
+      id: createLocalId("task"),
+      date,
+      createdAt: new Date().toISOString(),
+      leaderId: crew.leaderId,
+      leaderName: crew.leaderName,
+      crewId: crew.id,
+      crewName: crew.name,
+      labor,
+      crop,
+      sector,
+      goal: Number(goal || 0),
+      unit,
+      priority,
+      observation,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-end bg-[#123f2e]/45 px-3 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-[max(4rem,env(safe-area-inset-top))] backdrop-blur-sm sm:place-items-center">
+      <form onSubmit={submit} className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-[#2d8a61]">Planificar tarea</p>
+            <h2 className="mt-1 text-xl font-extrabold text-[#173c2d]">{crew.leaderName}</h2>
+            <p className="mt-1 text-xs text-[#718078]">{formatDateLabel(date)} · {crew.name}</p>
+          </div>
+          <button type="button" onClick={onClose} className="ag-secondary min-h-10 px-3 text-xs">Cancelar</button>
+        </div>
+
+        <div className="mt-5 rounded-2xl bg-[#173c2d] p-4 text-white">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-white/55">Meta sugerida</p>
+          <p className="mt-2 text-2xl font-extrabold">{suggestedGoal} {unit}</p>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <PlanLine label="Meta base" value={`${crew.goal} ${crew.unit}`} />
+            <PlanLine label="Pendiente" value={`${pending} ${crew.unit}`} />
+          </div>
+          <button type="button" onClick={() => setGoal(String(suggestedGoal))} className="mt-4 min-h-10 rounded-xl bg-white px-4 text-xs font-extrabold text-[#174c37]">Usar meta sugerida</button>
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <label className="ag-label">Fecha<input type="date" value={date} readOnly className="ag-field" /></label>
+          <label className="ag-label">Cuadrilla<input value={crew.name} readOnly className="ag-field" /></label>
+          <label className="ag-label">Labor<input value={labor} onChange={(event) => setLabor(event.target.value)} className="ag-field" /></label>
+          <label className="ag-label">Cultivo<input value={crop} onChange={(event) => setCrop(event.target.value)} className="ag-field" /></label>
+          <label className="ag-label">Sector<input value={sector} onChange={(event) => setSector(event.target.value)} className="ag-field" /></label>
+          <label className="ag-label">Meta<input type="number" min="0" step="0.01" value={goal} onChange={(event) => setGoal(event.target.value)} className="ag-field" /></label>
+          <Select label="Unidad" value={unit} onChange={setUnit} items={catalog.unidades.map((item) => ({ value: item, label: item }))} className="ag-field" />
+          <Select label="Prioridad" value={priority} onChange={setPriority} items={["Alta", "Media", "Normal"].map((item) => ({ value: item, label: item }))} className="ag-field" />
+          <label className="ag-label sm:col-span-2">Observación<textarea value={observation} onChange={(event) => setObservation(event.target.value)} className="ag-field min-h-24 resize-none py-3" /></label>
+        </div>
+
+        <button className="ag-primary mt-6 w-full" type="submit"><CalendarPlus size={18} />Guardar tarea</button>
+      </form>
+    </div>
+  );
+}
+
+function QuickButton({ label, onClick, active = false }: { label: string; onClick: () => void; active?: boolean }) {
+  return <button onClick={onClick} className={`min-h-10 whitespace-nowrap rounded-full px-4 text-xs font-extrabold ${active ? "bg-[#1a5b40] text-white" : "border border-[#dfe7e1] bg-white text-[#587066]"}`}>{label}</button>;
+}
+
+function EmptyBlock({ text }: { text: string }) {
+  return <p className="rounded-xl bg-[#f6f8f6] p-4 text-sm font-semibold leading-6 text-[#60736a]">{text}</p>;
+}
+
 function ProgressPanel({ title, items }: { title: string; items: { label: string; detail: string; value: number }[] }) { return <section className="ag-card p-5 sm:p-6"><SectionTitle title={title} /><div className="space-y-5">{items.map((item) => <ProgressRow key={`${item.label}-${item.detail}`} {...item} />)}</div></section>; }
 function ProgressRow({ label, detail, value, color = "#1f9d67" }: { label: string; detail?: string; value: number; color?: string }) { return <div><div className="mb-2 flex items-end justify-between gap-3"><div><p className="text-sm font-semibold text-[#355447]">{label}</p>{detail && <p className="mt-0.5 text-[10px] text-[#87948d]">{detail}</p>}</div><strong className="text-xs text-[#173c2d]">{value}%</strong></div><ProgressBar value={value} color={color} /></div>; }
-function WeeklyComparison() { const totals = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => { const values = weeklyPerformance.filter((item) => item.day === day); return { day, value: Math.round(values.reduce((sum, item) => sum + item.percentage, 0) / values.length) }; }); return <section className="ag-card p-5 sm:p-6"><SectionTitle title="Comparativo semanal" /><div className="flex h-44 items-end gap-2 border-b border-[#e4ebe6]">{totals.map((item) => <div key={item.day} className="flex h-full flex-1 flex-col items-center justify-end"><span className="mb-1 text-[10px] font-bold">{item.value}%</span><div className="w-full rounded-t-lg bg-[#5687bc]" style={{ height: `${item.value}%` }} /><span className="mt-2 text-[10px] text-[#718078]">{item.day}</span></div>)}</div></section>; }
+function FortnightComparison() {
+  const { leaders: sessionLeaders, progressRecords, operationalDate } = useAgroSession();
+  const range = getFortnightRange(operationalDate);
+  const records = getRecordsInRange(progressRecords, range.start, range.end);
+  const rows = sessionLeaders.map((leader) => {
+    const leaderRecords = records.filter((record) => record.leaderId === leader.id);
+    const goal = leaderRecords.reduce((sum, record) => sum + record.goal, 0);
+    const progress = leaderRecords.reduce((sum, record) => sum + record.progress, 0);
+    const hours = leaderRecords.reduce((sum, record) => sum + record.hours, 0);
+    return {
+      id: leader.id,
+      name: leader.name,
+      progress,
+      hours,
+      percentage: goal > 0 ? Math.round((progress / goal) * 100) : 0,
+    };
+  }).sort((a, b) => b.percentage - a.percentage);
+
+  return <section className="ag-card p-5 sm:p-6"><SectionTitle title="Rendimiento quincenal" /><p className="mt-1 text-xs font-semibold text-[#718078]">{range.start} al {range.end}</p><div className="mt-5 space-y-4">{records.length === 0 ? <EmptyBlock text="Sin datos quincenales. Registra avances para ver acumulados." /> : rows.map((row, index) => <div key={row.id} className="flex items-center gap-3"><span className="grid size-7 place-items-center rounded-full bg-[#eff4f0] text-xs font-bold text-[#597067]">{index + 1}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3 text-xs"><span className="font-bold text-[#355447]">{row.name}</span><strong>{row.percentage}%</strong></div><div className="mt-2"><ProgressBar value={row.percentage} color="#5687bc" /></div><p className="mt-1 text-[10px] text-[#87948d]">{formatNumber(row.progress)} avance · {formatNumber(row.hours)} h</p></div></div>)}</div></section>;
+}
 function LeaderCard({ leader, crew }: { leader: LeaderUser; crew: Crew }) { return <article className="ag-card p-5"><div className="flex justify-between gap-3"><div><h2 className="font-extrabold text-[#173c2d]">{leader.name}</h2><p className="mt-1 text-xs text-[#718078]">{leader.labor} · {leader.crop} · {leader.sector}</p></div><div className="flex items-start gap-2"><StatusBadge status={crew.status} /><LeaderActionMenu leader={leader} /></div></div><div className="my-4 grid grid-cols-2 gap-3 rounded-xl bg-[#f6f8f6] p-3"><InfoStat label="Cuadrilla" value={leader.crewName} /><InfoStat label="Trabajadores" value={String(crew.totalWorkers)} /></div><ProgressRow label="Cumplimiento" value={crew.percentage} /></article>; }
 function WorkerSummary({ worker }: { worker: Worker }) { return <article className="rounded-xl bg-[#f7f9f7] p-3"><div className="flex justify-between gap-2"><p className="truncate text-sm font-bold text-[#355447]">{worker.name}</p><div className="flex items-center gap-2"><StatusBadge status={worker.attendance} /><WorkerActionMenu worker={worker} /></div></div><p className="mt-2 text-xs text-[#718078]">{worker.dailyOutput} {worker.unit} · {worker.hoursWorked} h</p></article>; }
 function Select({ label, items, value, className, onChange = () => {} }: { label: string; items: { value: string; label: string }[]; value: string; className: string; onChange?: (value: string) => void }) { return <label className="ag-label">{label}<select className={className} value={value} onChange={(event) => onChange(event.target.value)}>{items.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>; }
 function PlanLine({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) { return <div className="flex justify-between gap-3 text-xs"><span className="text-white/60">{label}</span><strong className={strong ? "text-[#bce8cb]" : "text-white"}>{value}</strong></div>; }
 function Success({ text }: { text: string }) { return <div role="status" className="mt-5 flex items-center gap-2 rounded-xl bg-[#e9f6ef] px-4 py-3 text-sm font-bold text-[#18794e]"><CheckCircle2 size={18} />{text}</div>; }
 function formatDateTime(value: string) { return new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
-function formatNumber(value: number) { return Number(value.toFixed(2)).toString(); }
+function formatNumber(value: number) { return Number((Number.isFinite(value) ? value : 0).toFixed(2)).toString(); }
 

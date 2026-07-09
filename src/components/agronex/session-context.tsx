@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { crews as initialCrews, leaders as initialLeaders, workers as initialWorkers, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
-import type { LocalPlanningRecord, LocalProgressRecord, SyncQueueRecord } from "@/lib/agronex-offline";
+import type { DailyRecord, LocalPlanningRecord, LocalProgressRecord, SyncQueueRecord } from "@/lib/agronex-offline";
 
 type AgroSessionContextValue = {
   leaders: LeaderUser[];
@@ -10,6 +10,9 @@ type AgroSessionContextValue = {
   workers: Worker[];
   progressRecords: LocalProgressRecord[];
   planningRecords: LocalPlanningRecord[];
+  dailyRecords: Record<string, DailyRecord>;
+  operationalDate: string;
+  operationalNotice: string | null;
   syncQueue: SyncQueueRecord[];
   lastSyncAt: string | null;
   isOnline: boolean;
@@ -30,6 +33,9 @@ const AgroSessionContext = createContext<AgroSessionContextValue>({
   workers: initialWorkers,
   progressRecords: [],
   planningRecords: [],
+  dailyRecords: {},
+  operationalDate: "",
+  operationalNotice: null,
   syncQueue: [],
   lastSyncAt: null,
   isOnline: true,
