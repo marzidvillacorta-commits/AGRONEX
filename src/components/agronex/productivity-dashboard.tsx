@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Download, FileText, Printer } from "lucide-react";
 import type { OperationName } from "@/data/agronexData";
 import { roundProductivity } from "@/lib/agronex-productivity";
@@ -20,9 +20,35 @@ export function ProductivityDashboard({
   const [customStart, setCustomStart] = useState(addDays(operationalDate, -6));
   const [customEnd, setCustomEnd] = useState(operationalDate);
 
+  const [printContent, setPrintContent] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!printContent) return;
+    const raf = () => new Promise(requestAnimationFrame);
+    const print = async () => {
+      await raf();
+      await raf();
+      window.print();
+    };
+    print();
+    return () => {};
+  }, [printContent]);
+
+  useEffect(() => {
+    const clear = () => setPrintContent(null);
+    window.addEventListener("afterprint", clear);
+    return () => window.removeEventListener("afterprint", clear);
+  }, []);
+
   const range = getReportRange(period, operationalDate, customStart, customEnd);
   const records = useMemo(() => getRecordsInRange(progressRecords, range.start, range.end), [progressRecords, range.start, range.end]);
   const report = useMemo(() => buildProductivityReport(records, currentOperation, period, range), [records, currentOperation, period, range]);
+
+  const handlePrint = (html: string) => {
+    const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    setPrintContent(m ? m[1].trim() : html);
+  };
+  const printCss = useMemo(() => buildReportCss("#agronex-print-area"), []);
 
   return (
     <div className="space-y-6">
@@ -34,7 +60,7 @@ export function ProductivityDashboard({
           <p className="text-xs text-[#8d9992]">{range.start} al {range.end}</p>
         </div>
         <div className="flex gap-2">
-          <ExportButtons report={report} operation={currentOperation} period={period} range={range} />
+          <ExportButtons report={report} operation={currentOperation} period={period} range={range} onPrint={handlePrint} />
         </div>
       </header>
 
@@ -55,6 +81,35 @@ export function ProductivityDashboard({
           <PendingSectorsTable rows={report.pendingSectors} />
         </>
       )}
+      <style>{`
+@media screen {
+  #agronex-print-area { display: none; }
+}
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html, body { background: #fff !important; }
+  body * { visibility: hidden !important; }
+  #agronex-print-area,
+  #agronex-print-area * { visibility: visible !important; }
+  #agronex-print-area {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    background: #fff !important;
+    color: #111827 !important;
+    z-index: 999999 !important;
+  }
+}
+${printCss}
+`}</style>
+      <div
+        id="agronex-print-area"
+        className={printContent ? "print-active" : "print-inactive"}
+        dangerouslySetInnerHTML={{ __html: printContent || "" }}
+      />
     </div>
   );
 }
@@ -345,10 +400,13 @@ function PriorityBadge({ priority }: { priority: string }) {
   return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold ${colors[priority] ?? ""}`}>{priority}</span>;
 }
 
-function ExportButtons({ report, operation, period, range }: { report: ProductivityReport; operation: string; period: ReportPeriod; range: ReportRange }) {
+function ExportButtons({ report, operation, period, range, onPrint }: { report: ProductivityReport; operation: string; period: ReportPeriod; range: ReportRange; onPrint: (html: string) => void }) {
   return (
     <>
-      <button onClick={() => printReport(report, operation, period, range)} className="ag-secondary min-h-10 px-3 text-xs">
+      <button onClick={() => {
+        const html = buildReportHtml(report, operation, period, range);
+        if (html) onPrint(html);
+      }} className="ag-secondary min-h-10 px-3 text-xs">
         <Printer size={16} />PDF
       </button>
       <button onClick={() => exportCsv(report, operation, period, range)} className="ag-secondary min-h-10 px-3 text-xs">
@@ -384,16 +442,6 @@ function downloadFile(filename: string, content: string, mime: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function printReport(report: ProductivityReport, operation: string, period: string, range: ReportRange) {
-  const html = buildReportHtml(report, operation, period, range);
-  if (!html) return;
-  const win = window.open("", "_blank", "noopener,noreferrer");
-  if (!win) return;
-  win.document.write(html);
-  win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 500);
 }
 
 function exportCsv(report: ProductivityReport, operation: string, period: string, range: ReportRange) {
@@ -466,17 +514,32 @@ function exportDoc(report: ProductivityReport, operation: string, period: string
   downloadFile(`agronex-informe-${range.start}-${range.end}.doc`, html, "application/msword;charset=utf-8");
 }
 
-function buildReportHtml(report: ProductivityReport, operation: string, period: string, range: ReportRange): string | null {
-  if (report.summary.recordCount === 0) {
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Dashboard AgroNex</title></head><body style="font-family:Arial,sans-serif;color:#173c2d;margin:40px"><h1>Dashboard de productividad AgroNex</h1><p>No hay datos suficientes para generar el informe de este periodo.</p></body></html>`;
-  }
+function buildReportCss(root = "#agronex-print-area"): string {
+  return `
+${root}{font-family:Arial,sans-serif;color:#173c2d;margin:32px;font-size:13px;line-height:1.5}
+${root} h1{font-size:22px;margin:0 0 4px}
+${root} h2{font-size:15px;margin:20px 0 4px;color:#1a5b40}
+${root} .meta{color:#60736a;font-size:12px}
+${root} .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+${root} .card{border:1px solid #dfe7e1;border-radius:8px;padding:10px 12px}
+${root} .card strong{display:block;font-size:18px;margin-top:2px}
+${root} .card .lbl{font-size:10px;text-transform:uppercase;color:#8a978f}
+${root} table{border-collapse:collapse;width:100%;margin-top:8px;font-size:11px}
+${root} th{border:1px solid #dfe7e1;padding:6px 8px;text-align:left;background:#f5f8f6;font-size:10px;text-transform:uppercase;color:#60736a}
+${root} td{border:1px solid #dfe7e1;padding:6px 8px}
+${root} .right{text-align:right}
+${root} .pct{font-weight:bold}
+${root} .ok{color:#1a5b40} ${root} .warn{color:#d79a29} ${root} .bad{color:#bd513c}
+${root} hr{border:none;border-top:1px solid #dfe7e1;margin:20px 0}
+`;
+}
 
+function buildReportBody(report: ProductivityReport, operation: string, period: string, range: ReportRange): string | null {
+  if (report.summary.recordCount === 0) return null;
   const genAt = new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date());
   const s = report.summary;
-
   const bar = (pct: number, color = "#1f9d67") =>
     `<div style="height:10px;background:#e8eee9;border-radius:5px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${Math.min(pct, 100)}%;background:${color};border-radius:5px"></div></div>`;
-
   const cells = [
     ["Meta acumulada", fmt(s.totalGoal)],
     ["Avance acumulado", fmt(s.totalOutput)],
@@ -485,61 +548,44 @@ function buildReportHtml(report: ProductivityReport, operation: string, period: 
     ["Horas hombre", `${fmt(s.totalManHours)} HH`],
     ["Rend. hora hombre", fmt(s.outputPerManHour)],
   ];
-
   const tableHtml = (headers: string[], rows: string[][]) =>
     `<table style="border-collapse:collapse;width:100%;margin-top:8px;font-size:11px">
       <thead><tr>${headers.map((h) => `<th style="border:1px solid #dfe7e1;padding:6px 8px;text-align:left;background:#f5f8f6;font-size:10px;text-transform:uppercase">${h}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((row) => `<tr>${row.map((c) => `<td style="border:1px solid #dfe7e1;padding:6px 8px">${c}</td>`).join("")}</tr>`).join("")}</tbody>
     </table>`;
-
   const leaderRows = report.byLeader.map((r) => [r.leaderName, r.labor, r.sector, fmt(r.goal), fmt(r.progress), fmt(r.remaining), `${r.percentage}%`, fmt(r.manHours), r.status]);
   const laborRows = report.byLabor.map((r) => [r.labor, fmt(r.goal), fmt(r.progress), `${r.percentage}%${r.percentage > 0 ? bar(r.percentage) : ""}`]);
   const topRows = report.topWorkers.slice(0, 10).map((r, i) => [String(i + 1), r.workerName, r.leaderName, r.labor, `${fmt(r.output)} ${r.unit}`, `${fmt(r.hours)} h`, fmt(r.performance), `${r.attendanceDays}/${r.attendanceDays + r.absences}`]);
   const lowRows = report.lowWorkers.slice(0, 10).map((r) => [r.workerName, r.leaderName, r.labor, `${fmt(r.output)} ${r.unit}`, `${fmt(r.hours)} h`, fmt(r.performance), String(r.absences), r.observation]);
   const pendRows = report.pendingSectors.map((r) => [r.sector, r.labor, r.leaderName, fmt(r.goal), fmt(r.progress), fmt(r.remaining), r.priority, r.recommendation]);
-
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Dashboard de productividad AgroNex</title>
-<style>
-  body{font-family:Arial,sans-serif;color:#173c2d;margin:32px;font-size:13px;line-height:1.5}
-  h1{font-size:22px;margin:0 0 4px}
-  h2{font-size:15px;margin:20px 0 4px;color:#1a5b40}
-  .meta{color:#60736a;font-size:12px}
-  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
-  .card{border:1px solid #dfe7e1;border-radius:8px;padding:10px 12px}
-  .card strong{display:block;font-size:18px;margin-top:2px}
-  .card .lbl{font-size:10px;text-transform:uppercase;color:#8a978f}
-  table{border-collapse:collapse;width:100%;margin-top:8px;font-size:11px}
-  th{border:1px solid #dfe7e1;padding:6px 8px;text-align:left;background:#f5f8f6;font-size:10px;text-transform:uppercase;color:#60736a}
-  td{border:1px solid #dfe7e1;padding:6px 8px}
-  .right{text-align:right}
-  .pct{font-weight:bold}
-  .ok{color:#1a5b40} .warn{color:#d79a29} .bad{color:#bd513c}
-  hr{border:none;border-top:1px solid #dfe7e1;margin:20px 0}
-</style></head><body>
-<h1>Dashboard de productividad AgroNex</h1>
-<p class="meta">Operación: ${operation} · Periodo: ${period} · ${range.start} al ${range.end}</p>
-<p class="meta">Fecha de generación: ${genAt}</p>
-
+  return `<h1>Dashboard de productividad AgroNex</h1>
+<p class="meta">Operaci&oacute;n: ${operation} &middot; Periodo: ${period} &middot; ${range.start} al ${range.end}</p>
+<p class="meta">Fecha de generaci&oacute;n: ${genAt}</p>
 <h2>Resumen ejecutivo</h2>
 <p style="margin-top:4px">${report.executiveSummary}</p>
-
 <h2>Indicadores principales</h2>
 <div class="grid">${cells.map(([l, v]) => `<div class="card"><div class="lbl">${l}</div><strong>${v}</strong></div>`).join("")}</div>
-
 ${report.byLeader.length > 0 ? `<h2>Avance por encargado</h2>${tableHtml(["Encargado","Labor","Sector","Meta","Avance","Faltante","Cumplimiento","HH","Estado"], leaderRows)}` : ""}
-
 ${report.byLabor.length > 0 ? `<h2>Avance por labor</h2>${tableHtml(["Labor","Meta","Avance","Cumplimiento"], laborRows)}` : ""}
-
 ${report.topWorkers.length > 0 ? `<h2>Trabajadores con mayor rendimiento</h2>${tableHtml(["#","Trabajador","Encargado","Labor","Avance","Horas","Rendimiento","Asistencia"], topRows)}` : ""}
-
-${report.lowWorkers.length > 0 ? `<h2>Trabajadores que requieren revisión</h2>${tableHtml(["Trabajador","Encargado","Labor","Avance","Horas","Rendimiento","Ausencias","Observación"], lowRows)}` : ""}
-
-${report.pendingSectors.length > 0 ? `<h2>Sectores pendientes</h2>${tableHtml(["Sector","Labor","Encargado","Meta","Avance","Faltante","Prioridad","Recomendación"], pendRows)}` : ""}
-
+${report.lowWorkers.length > 0 ? `<h2>Trabajadores que requieren revisi\u00f3n</h2>${tableHtml(["Trabajador","Encargado","Labor","Avance","Horas","Rendimiento","Ausencias","Observaci\u00f3n"], lowRows)}` : ""}
+${report.pendingSectors.length > 0 ? `<h2>Sectores pendientes</h2>${tableHtml(["Sector","Labor","Encargado","Meta","Avance","Faltante","Prioridad","Recomendaci\u00f3n"], pendRows)}` : ""}
 <h2>Recomendaciones</h2>
 <p>${report.recommendation}</p>
 <hr>
-<p class="meta" style="font-size:10px">Reporte generado por AgroNex — by Zidnex Digital</p>
+<p class="meta" style="font-size:10px">Reporte generado por AgroNex &mdash; by Zidnex Digital</p>`;
+}
+
+function buildReportHtml(report: ProductivityReport, operation: string, period: string, range: ReportRange): string | null {
+  const body = buildReportBody(report, operation, period, range);
+  if (!body) {
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Dashboard AgroNex</title></head><body style="font-family:Arial,sans-serif;color:#173c2d;margin:40px"><h1>Dashboard de productividad AgroNex</h1><p>No hay datos suficientes para generar el informe de este periodo.</p></body></html>`;
+  }
+  const css = buildReportCss("body");
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Dashboard de productividad AgroNex</title>
+<style>${css}</style></head><body>
+${body}
 </body></html>`;
 }
+

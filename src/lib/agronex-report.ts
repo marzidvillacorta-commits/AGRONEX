@@ -164,7 +164,7 @@ function buildByLeader(records: LocalProgressRecord[]): LeaderReportRow[] {
     const percentage = data.goal > 0 ? Math.round((data.progress / data.goal) * 100) : 0;
     const status = percentage >= 100 ? "Cumplido" : percentage >= 80 ? "En avance" : "Atrasado";
     return {
-      leaderName: records.find((r) => r.leaderId === _.split("-").slice(1).join("-"))?.leaderName ?? _,
+      leaderName: records.find((r) => r.leaderId === _)?.leaderName ?? _.replace(/^leader-/i, ""),
       labor: data.labor,
       sector: data.sector,
       goal: data.goal,
