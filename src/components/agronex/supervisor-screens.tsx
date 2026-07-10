@@ -1,13 +1,14 @@
-﻿"use client";
+"use client";
 
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { AlertTriangle, ArrowRight, CalendarPlus, Check, CheckCircle2, Clock3, ClipboardList, Cloud, CloudOff, Download, FileText, LogOut, Map as MapIcon, MoreHorizontal, Plus, Printer, RefreshCw, Settings2, Sparkles, TrendingUp, UserCheck, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
-import { DEFAULT_WORK_HOURS, getBaseGoal, type AppScreen, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
+import { AlertTriangle, ArrowRight, CalendarPlus, Check, CheckCircle2, Clock3, ClipboardList, Cloud, CloudOff, LogOut, Map as MapIcon, MoreHorizontal, Plus, RefreshCw, Settings2, Sparkles, TrendingUp, UserCheck, UserMinus, UserPlus, Users, UsersRound } from "lucide-react";
+import { getBaseGoal, type AppScreen, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
 import { DonutProgress, InfoStat, MetricCard, ProgressBar, ScreenHeading, SectionTitle, StatusBadge } from "./ui";
 import { useAgroSession } from "./session-context";
-import { addDays, createLocalId, formatDateLabel, getFortnightRange, getFortnightRecords, getLocalDate, getPendingSyncCount, getRecordsForDate, getRecordsInRange, type LocalPlanningRecord, type LocalProgressRecord } from "@/lib/agronex-offline";
+import { addDays, createLocalId, formatDateLabel, getFortnightRecords, getLocalDate, getPendingSyncCount, getRecordsForDate, type LocalPlanningRecord } from "@/lib/agronex-offline";
 import { LeaderActionMenu, WorkerActionMenu } from "./management-actions";
+import { ProductivityDashboard } from "./productivity-dashboard";
 
 export function SupervisorDashboard({ onNavigate }: { onNavigate: (screen: AppScreen) => void }) {
   const { crews, leaders, currentOperation, operationalDate, operationalNotice } = useAgroSession();
@@ -16,7 +17,7 @@ export function SupervisorDashboard({ onNavigate }: { onNavigate: (screen: AppSc
   const hours = crews.reduce((sum, crew) => sum + crew.manHours, 0);
   const overall = crews.length ? Math.round(crews.reduce((sum, crew) => sum + crew.percentage, 0) / crews.length) : 0;
   const pendingTotal = crews.reduce((sum, crew) => sum + (crew.remaining > 0 ? 1 : 0), 0);
-  return <div className="space-y-6"><ScreenHeading eyebrow="Panel supervisor" title={`Panel supervisor — ${currentOperation}`} description={`Fecha operativa: ${formatDateLabel(operationalDate)}.`} />{operationalNotice && <div className="rounded-2xl bg-[#fff8e7] px-4 py-3 text-sm font-bold text-[#8b650b]">{operationalNotice}</div>}<div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><MetricCard label="Encargados activos" value={String(leaders.length)} icon={UserCheck} onClick={() => onNavigate("encargados")} /><MetricCard label="Cuadrillas activas" value={String(crews.length)} icon={UsersRound} tone="blue" onClick={() => onNavigate("cuadrillas")} /><MetricCard label="Trabajadores presentes" value={String(present)} icon={Users} onClick={() => onNavigate("trabajadores")} /><MetricCard label="Ausentes" value={String(total - present)} icon={UserMinus} tone="red" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Horas hombre" value={String(hours)} icon={Clock3} tone="blue" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Avance general" value={`${overall}%`} icon={TrendingUp} tone="gold" onClick={() => onNavigate("avances")} /><MetricCard label="Pendientes acumulados" value={String(pendingTotal)} icon={AlertTriangle} tone="red" onClick={() => onNavigate("pendientes")} /></div><div className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por encargado" action={<button onClick={() => onNavigate("avances")} className="ag-text-button">Ver avances <ArrowRight size={15} /></button>} /><div className="space-y-5">{crews.length === 0 ? <EmptyBlock text="Planifica una tarea para comenzar el registro del día." /> : crews.map((crew) => <ProgressRow key={crew.id} label={`${crew.leaderName} · ${crew.labor}`} value={crew.percentage} detail={crew.sector} color={crew.percentage < 70 ? "#c4634e" : crew.percentage === 100 ? "#1f9d67" : "#d79a29"} />)}</div></section><section className="ag-card flex items-center justify-between gap-4 p-5 sm:p-6 xl:flex-col xl:text-center"><div><p className="text-sm font-bold text-[#60736a]">Cumplimiento global</p><p className="mt-2 text-xs leading-5 text-[#819087]">Promedio de las labores activas</p></div><DonutProgress value={overall} size={106} /></section></div><div className="grid gap-5 lg:grid-cols-2"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por labor" /><div className="space-y-4">{crews.map((crew) => <ProgressRow key={crew.id} label={crew.labor} value={crew.percentage} detail={`${crew.progress} de ${crew.goal} ${crew.unit}`} />)}</div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Productividad por cuadrilla" /><div className="space-y-4">{crews.map((crew) => <div key={crew.id} className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]"><UsersRound size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#355447]">{crew.name}</p><p className="mt-0.5 text-xs text-[#819087]">{crew.presentWorkers} presentes · {crew.manHours} h</p></div><strong className="whitespace-nowrap text-sm text-[#173c2d] tabular-nums">{formatNumber(crew.progress / Math.max(1, crew.presentWorkers))}</strong></div>)}</div></section></div><div className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Alertas de bajo rendimiento" action={<button onClick={() => onNavigate("pendientes")} className="ag-text-button">Ver pendientes <ArrowRight size={15} /></button>} /><div className="divide-y divide-[#edf1ee]">{crews.filter((crew) => crew.remaining > 0).length === 0 ? <EmptyBlock text="Sin pendientes acumulados." /> : crews.filter((crew) => crew.remaining > 0).map((crew) => <div key={crew.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]"><AlertTriangle size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#294a3b]">{crew.leaderName} · {crew.labor}</p><p className="mt-0.5 text-xs text-[#7c8b83]">Faltan {crew.remaining} {crew.unit} en {crew.sector}</p></div><strong className="whitespace-nowrap text-xs text-[#bd513c] tabular-nums">{crew.percentage}%</strong></div>)}</div></section><section className="rounded-2xl bg-[linear-gradient(135deg,#1a5b40,#267852)] p-5 text-white shadow-lg shadow-[#164a35]/15"><span className="grid size-10 place-items-center rounded-xl bg-white/15"><Sparkles size={20} /></span><p className="mt-5 text-xs font-bold uppercase tracking-widest text-white/60">Planificación de mañana</p><p className="mt-2 text-sm font-semibold leading-6">Priorizar labores con pendientes y reforzar cuadrillas bajo meta.</p><button onClick={() => onNavigate("planificacion")} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 text-xs font-extrabold text-[#174c37]">Planificar tareas <ArrowRight size={15} /></button></section></div></div>;
+  return <div className="space-y-6"><ScreenHeading eyebrow="Panel supervisor" title={`Panel supervisor · ${currentOperation}`} description={`Fecha operativa: ${formatDateLabel(operationalDate)}.`} />{operationalNotice && <div className="rounded-2xl bg-[#fff8e7] px-4 py-3 text-sm font-bold text-[#8b650b]">{operationalNotice}</div>}<div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><MetricCard label="Encargados activos" value={String(leaders.length)} icon={UserCheck} onClick={() => onNavigate("encargados")} /><MetricCard label="Cuadrillas activas" value={String(crews.length)} icon={UsersRound} tone="blue" onClick={() => onNavigate("cuadrillas")} /><MetricCard label="Trabajadores presentes" value={String(present)} icon={Users} onClick={() => onNavigate("trabajadores")} /><MetricCard label="Ausentes" value={String(total - present)} icon={UserMinus} tone="red" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Horas hombre" value={String(hours)} icon={Clock3} tone="blue" onClick={() => onNavigate("trabajadores")} /><MetricCard label="Avance general" value={`${overall}%`} icon={TrendingUp} tone="gold" onClick={() => onNavigate("avances")} /><MetricCard label="Pendientes acumulados" value={String(pendingTotal)} icon={AlertTriangle} tone="red" onClick={() => onNavigate("pendientes")} /></div><div className="grid gap-5 xl:grid-cols-[1.25fr_.75fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por encargado" action={<button onClick={() => onNavigate("avances")} className="ag-text-button">Ver avances <ArrowRight size={15} /></button>} /><div className="space-y-5">{crews.length === 0 ? <EmptyBlock text="Planifica una tarea para comenzar el registro del día." /> : crews.map((crew) => <ProgressRow key={crew.id} label={`${crew.leaderName} · ${crew.labor}`} value={crew.percentage} detail={crew.sector} color={crew.percentage < 70 ? "#c4634e" : crew.percentage === 100 ? "#1f9d67" : "#d79a29"} />)}</div></section><section className="ag-card flex items-center justify-between gap-4 p-5 sm:p-6 xl:flex-col xl:text-center"><div><p className="text-sm font-bold text-[#60736a]">Cumplimiento global</p><p className="mt-2 text-xs leading-5 text-[#819087]">Promedio de las labores activas</p></div><DonutProgress value={overall} size={106} /></section></div><div className="grid gap-5 lg:grid-cols-2"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Avance por labor" /><div className="space-y-4">{crews.map((crew) => <ProgressRow key={crew.id} label={crew.labor} value={crew.percentage} detail={`${crew.progress} de ${crew.goal} ${crew.unit}`} />)}</div></section><section className="ag-card p-5 sm:p-6"><SectionTitle title="Productividad por cuadrilla" /><div className="space-y-4">{crews.map((crew) => <div key={crew.id} className="flex items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]"><UsersRound size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#355447]">{crew.name}</p><p className="mt-0.5 text-xs text-[#819087]">{crew.presentWorkers} presentes · {crew.manHours} h</p></div><strong className="whitespace-nowrap text-sm text-[#173c2d] tabular-nums">{formatNumber(crew.progress / Math.max(1, crew.presentWorkers))}</strong></div>)}</div></section></div><div className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><section className="ag-card p-5 sm:p-6"><SectionTitle title="Alertas de bajo rendimiento" action={<button onClick={() => onNavigate("pendientes")} className="ag-text-button">Ver pendientes <ArrowRight size={15} /></button>} /><div className="divide-y divide-[#edf1ee]">{crews.filter((crew) => crew.remaining > 0).length === 0 ? <EmptyBlock text="Sin pendientes acumulados." /> : crews.filter((crew) => crew.remaining > 0).map((crew) => <div key={crew.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]"><AlertTriangle size={17} /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-[#294a3b]">{crew.leaderName} · {crew.labor}</p><p className="mt-0.5 text-xs text-[#7c8b83]">Faltan {crew.remaining} {crew.unit} en {crew.sector}</p></div><strong className="whitespace-nowrap text-xs text-[#bd513c] tabular-nums">{crew.percentage}%</strong></div>)}</div></section><section className="rounded-2xl bg-[linear-gradient(135deg,#1a5b40,#267852)] p-5 text-white shadow-lg shadow-[#164a35]/15"><span className="grid size-10 place-items-center rounded-xl bg-white/15"><Sparkles size={20} /></span><p className="mt-5 text-xs font-bold uppercase tracking-widest text-white/60">Planificación de mañana</p><p className="mt-2 text-sm font-semibold leading-6">Priorizar labores con pendientes y reforzar cuadrillas bajo meta.</p><button onClick={() => onNavigate("planificacion")} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-4 text-xs font-extrabold text-[#174c37]">Planificar tareas <ArrowRight size={15} /></button></section></div></div>;
 }
 
 export function PlanningScreen() {
@@ -98,15 +99,7 @@ export function AdvancesScreen() { const { crews } = useAgroSession(); return <d
 
 export function SupervisorReports() {
   const { currentOperation, operationalDate, progressRecords } = useAgroSession();
-  const [period, setPeriod] = useState<ReportPeriod>("Semana");
-  const [customStart, setCustomStart] = useState(addDays(operationalDate, -6));
-  const [customEnd, setCustomEnd] = useState(operationalDate);
-  const range = getReportRange(period, operationalDate, customStart, customEnd);
-  const records = getRecordsInRange(progressRecords, range.start, range.end);
-  const report = buildProductivityReport(records);
-  const unit = new Set(records.map((record) => record.unit)).size === 1 ? records[0]?.unit ?? "" : "unid.";
-
-  return <div className="space-y-5"><ScreenHeading eyebrow="Análisis operativo" title="Productividad" description={`Reporte de ${currentOperation} para ${period.toLowerCase()}.`} /><section className="ag-card p-4"><div className="flex gap-2 overflow-x-auto pb-1">{(["Día", "Semana", "Quincena", "Mes", "Personalizado"] as ReportPeriod[]).map((item) => <button key={item} onClick={() => setPeriod(item)} className={`min-h-10 whitespace-nowrap rounded-full px-4 text-xs font-extrabold ${period === item ? "bg-[#1a5b40] text-white" : "border border-[#dfe7e1] bg-white text-[#587066]"}`}>{item}</button>)}</div>{period === "Personalizado" && <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="ag-label">Inicio<input className="ag-field" type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label className="ag-label">Fin<input className="ag-field" type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></div>}</section><section className="ag-card p-5 sm:p-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-[#2d8a61]">Resumen ejecutivo</p><h2 className="mt-1 text-lg font-extrabold text-[#173c2d]">Reporte de productividad AgroNex</h2><p className="mt-1 text-xs font-semibold text-[#718078]">Operación: {currentOperation} · Periodo: {range.start} al {range.end}</p></div><div className="flex gap-2 overflow-x-auto"><button onClick={() => printProductivityReport(currentOperation, period, range, report)} className="ag-secondary min-h-10 px-3 text-xs"><Printer size={16} />PDF / Imprimir</button><button onClick={() => exportCsv(currentOperation, period, range, records)} className="ag-secondary min-h-10 px-3 text-xs"><Download size={16} />CSV</button><button onClick={() => exportDoc(currentOperation, period, range, report)} className="ag-secondary min-h-10 px-3 text-xs"><FileText size={16} />Informe</button></div></div><div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"><InfoStat label="Meta acumulada" value={`${formatNumber(report.goal)} ${unit}`} /><InfoStat label="Avance acumulado" value={`${formatNumber(report.progress)} ${unit}`} /><InfoStat label="Faltante" value={`${formatNumber(report.remaining)} ${unit}`} /><InfoStat label="Cumplimiento" value={`${report.percentage}%`} /><InfoStat label="Horas hombre" value={`${formatNumber(report.hours)} h`} /><InfoStat label="Presentes acum." value={String(report.present)} /><InfoStat label="Ausencias acum." value={String(report.absent)} /><InfoStat label="Rend. trabajador" value={`${formatNumber(report.avgWorker)} ${unit}`} /><InfoStat label="Rend. hora hombre" value={`${formatNumber(report.avgHour)} ${unit}/hh`} /><InfoStat label="Registros" value={String(records.length)} /></div><div className="mt-4"><ProgressBar value={report.percentage} /></div></section><div className="grid gap-5 lg:grid-cols-2"><RankingPanel title="Ranking de encargados" rows={report.leaderRanking} /><RankingPanel title="Ranking de cuadrillas" rows={report.crewRanking} /><RankingPanel title="Avance por labor" rows={report.laborRanking} /><RankingPanel title="Ranking de trabajadores" rows={report.workerRanking.slice(0, 8)} /></div><section className="ag-card p-5 sm:p-6"><SectionTitle title="Informe" /><div className="grid gap-4 lg:grid-cols-3"><ReportList title="Top 5 mayor rendimiento" rows={report.workerRanking.slice(0, 5)} /><ReportList title="Top 5 menor rendimiento" rows={[...report.workerRanking].reverse().slice(0, 5)} /><ReportList title="Sectores pendientes" rows={report.pendingSectors} /></div><section className="mt-5 rounded-2xl border border-[#ead8af] bg-[#fff8e7] p-4"><p className="text-xs font-bold uppercase tracking-wider text-[#9a6506]">Recomendación</p><p className="mt-2 text-sm font-semibold leading-6 text-[#5d5134]">{report.recommendation}</p></section></section></div>;
+  return <ProductivityDashboard currentOperation={currentOperation} operationalDate={operationalDate} progressRecords={progressRecords} />;
 }
 
 export function LeadersScreen() {
@@ -162,118 +155,6 @@ export function ConfigScreen() {
 }
 
 export function SupervisorMore({ onNavigate, onExit }: { onNavigate: (screen: AppScreen) => void; onExit: () => void }) { const items = [{ label: "Encargados", description: "Responsables de labor", icon: UserCheck, screen: "encargados" as const }, { label: "Cuadrillas", description: "Dotación y productividad", icon: UsersRound, screen: "cuadrillas" as const }, { label: "Trabajadores", description: "Personal y asistencia global", icon: Users, screen: "trabajadores" as const }, { label: "Avances", description: "Cumplimiento por sector y labor", icon: TrendingUp, screen: "avances" as const }, { label: "Pendientes", description: "Continuidad para mañana", icon: ClipboardList, screen: "pendientes" as const }, { label: "Sincronización", description: "Pendientes y estado offline", icon: RefreshCw, screen: "sincronizacion" as const }, { label: "Configuración", description: "Catálogos del sistema", icon: Settings2, screen: "configuracion" as const }]; return <div><ScreenHeading eyebrow="Panel supervisor" title="Más" description="Gestión completa de la operación." /><div className="ag-card divide-y divide-[#edf1ee]">{items.map(({ label, description, icon: Icon, screen }) => <button key={label} onClick={() => onNavigate(screen)} className="flex min-h-[72px] w-full items-center gap-4 px-5 text-left hover:bg-[#f7f9f7]"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]"><Icon size={19} /></span><span className="flex-1"><strong className="block text-sm text-[#294a3b]">{label}</strong><span className="mt-1 block text-xs text-[#7b8981]">{description}</span></span><ArrowRight size={17} className="text-[#8d9992]" /></button>)}<button onClick={onExit} className="flex min-h-[72px] w-full items-center gap-4 px-5 text-left hover:bg-[#fff6f3]"><span className="grid size-10 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]"><LogOut size={19} /></span><span><strong className="block text-sm text-[#6d3d34]">Salir</strong><span className="mt-1 block text-xs text-[#9a746c]">Volver a la bienvenida</span></span></button></div><p className="mt-8 text-center text-[10px] font-semibold tracking-[.14em] text-[#9aa69f]">by Zidnex Digital</p></div>; }
-
-type ReportPeriod = "Día" | "Semana" | "Quincena" | "Mes" | "Personalizado";
-type ReportRange = { start: string; end: string };
-type RankingRow = { label: string; detail: string; value: number; unit: string };
-
-function getReportRange(period: ReportPeriod, operationalDate: string, customStart: string, customEnd: string): ReportRange {
-  if (period === "Día") return { start: operationalDate, end: operationalDate };
-  if (period === "Semana") return { start: addDays(operationalDate, -6), end: operationalDate };
-  if (period === "Quincena") return getFortnightRange(operationalDate);
-  if (period === "Mes") return { start: operationalDate.slice(0, 8) + "01", end: operationalDate };
-  return { start: customStart, end: customEnd };
-}
-
-function buildProductivityReport(records: LocalProgressRecord[]) {
-  const goal = records.reduce((sum, record) => sum + record.goal, 0);
-  const progress = records.reduce((sum, record) => sum + record.progress, 0);
-  const remaining = records.reduce((sum, record) => sum + record.remaining, 0);
-  const hours = records.reduce((sum, record) => sum + record.hours, 0);
-  const present = records.reduce((sum, record) => sum + record.workers.filter((worker) => worker.attendance === "Presente").length, 0);
-  const absent = records.reduce((sum, record) => sum + record.workers.filter((worker) => worker.attendance === "Ausente").length, 0);
-  const percentage = goal > 0 ? Math.round((progress / goal) * 100) : 0;
-  const leaderRanking = rank(records, (record) => record.leaderName, (record) => record.labor);
-  const crewRanking = rank(records, (record) => record.crewName, (record) => record.leaderName);
-  const laborRanking = rank(records, (record) => record.labor, (record) => record.sector);
-  const pendingSectors = rank(records.filter((record) => record.remaining > 0), (record) => record.sector, (record) => record.labor, "remaining");
-  const workerRanking = rankWorkers(records);
-  const delayed = leaderRanking.filter((row) => row.value < 90).map((row) => row.label).slice(0, 3).join(", ");
-
-  return {
-    goal,
-    progress,
-    remaining,
-    hours,
-    present,
-    absent,
-    percentage,
-    avgWorker: present ? progress / present : 0,
-    avgHour: hours ? progress / hours : 0,
-    leaderRanking,
-    crewRanking,
-    laborRanking,
-    workerRanking,
-    pendingSectors,
-    recommendation: delayed ? `Reforzar seguimiento en ${delayed} por cumplimiento bajo la meta.` : "Mantener la distribución actual y revisar pendientes antes de la siguiente jornada.",
-  };
-}
-
-function rank(records: LocalProgressRecord[], label: (record: LocalProgressRecord) => string, detail: (record: LocalProgressRecord) => string, mode: "percentage" | "remaining" = "percentage"): RankingRow[] {
-  const grouped = new Map<string, { detail: string; goal: number; progress: number; remaining: number; unit: string }>();
-  records.forEach((record) => {
-    const key = label(record);
-    const current = grouped.get(key) ?? { detail: detail(record), goal: 0, progress: 0, remaining: 0, unit: record.unit };
-    grouped.set(key, { ...current, goal: current.goal + record.goal, progress: current.progress + record.progress, remaining: current.remaining + record.remaining });
-  });
-  return Array.from(grouped.entries()).map(([key, item]) => ({ label: key, detail: item.detail, value: mode === "remaining" ? item.remaining : item.goal > 0 ? Math.round((item.progress / item.goal) * 100) : 0, unit: mode === "remaining" ? item.unit : "%" })).sort((a, b) => b.value - a.value);
-}
-
-function rankWorkers(records: LocalProgressRecord[]): RankingRow[] {
-  const grouped = new Map<string, { detail: string; output: number; hours: number; unit: string }>();
-  records.flatMap((record) => record.workers.map((worker) => ({ ...worker, leader: record.leaderName }))).forEach((worker) => {
-    if (worker.attendance !== "Presente") return;
-    const current = grouped.get(worker.name) ?? { detail: worker.leader, output: 0, hours: 0, unit: worker.unit };
-    grouped.set(worker.name, { ...current, output: current.output + worker.dailyOutput, hours: current.hours + DEFAULT_WORK_HOURS });
-  });
-  return Array.from(grouped.entries()).map(([label, item]) => ({ label, detail: item.detail, value: item.hours ? Number((item.output / item.hours).toFixed(2)) : 0, unit: `${item.unit}/h` })).sort((a, b) => b.value - a.value);
-}
-
-function RankingPanel({ title, rows }: { title: string; rows: RankingRow[] }) {
-  return <section className="ag-card p-5 sm:p-6"><SectionTitle title={title} /><ReportList rows={rows.slice(0, 6)} /></section>;
-}
-
-function ReportList({ title, rows }: { title?: string; rows: RankingRow[] }) {
-  return <div>{title && <h3 className="mb-3 text-sm font-extrabold text-[#173c2d]">{title}</h3>}<div className="space-y-3">{rows.length === 0 ? <EmptyBlock text="Sin registros para este periodo." /> : rows.map((row, index) => <div key={`${row.label}-${index}`} className="flex items-center gap-3"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eff4f0] text-xs font-bold text-[#597067]">{index + 1}</span><span className="min-w-0 flex-1"><strong className="block truncate text-sm text-[#355447]">{row.label}</strong><span className="block truncate text-xs text-[#819087]">{row.detail}</span></span><strong className="whitespace-nowrap text-xs text-[#173c2d]">{formatNumber(row.value)} {row.unit}</strong></div>)}</div></div>;
-}
-
-function exportCsv(operation: string, period: string, range: ReportRange, records: LocalProgressRecord[]) {
-  const rows = [["Operacion", "Periodo", "Fecha", "Encargado", "Cuadrilla", "Labor", "Sector", "Meta", "Avance", "Faltante", "Unidad", "Horas hombre", "Cumplimiento"]];
-  records.forEach((record) => rows.push([operation, period, record.date, record.leaderName, record.crewName, record.labor, record.sector, String(record.goal), String(record.progress), String(record.remaining), record.unit, String(record.hours), `${record.percentage}%`]));
-  downloadFile(`agronex-productividad-${range.start}-${range.end}.csv`, rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(",")).join("\n"), "text/csv;charset=utf-8");
-}
-
-function exportDoc(operation: string, period: string, range: ReportRange, report: ReturnType<typeof buildProductivityReport>) {
-  downloadFile(`agronex-informe-${range.start}-${range.end}.doc`, reportHtml(operation, period, range, report), "application/msword;charset=utf-8");
-}
-
-function printProductivityReport(operation: string, period: string, range: ReportRange, report: ReturnType<typeof buildProductivityReport>) {
-  const win = window.open("", "_blank", "noopener,noreferrer");
-  if (!win) return;
-  win.document.write(reportHtml(operation, period, range, report));
-  win.document.close();
-  win.focus();
-  win.print();
-}
-
-function reportHtml(operation: string, period: string, range: ReportRange, report: ReturnType<typeof buildProductivityReport>) {
-  const generatedAt = new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short" }).format(new Date());
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Reporte de productividad AgroNex</title><style>body{font-family:Arial,sans-serif;color:#173c2d;margin:32px}h1{font-size:24px}h2{font-size:16px;margin-top:24px}table{border-collapse:collapse;width:100%;margin-top:12px}td,th{border:1px solid #dfe7e1;padding:8px;text-align:left;font-size:12px}.muted{color:#60736a}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{border:1px solid #dfe7e1;border-radius:8px;padding:12px}</style></head><body><h1>Reporte de productividad AgroNex</h1><p class="muted">Operación: ${operation} · Periodo: ${period} · ${range.start} al ${range.end}</p><p class="muted">Fecha de generación: ${generatedAt}</p><div class="grid"><div class="card"><strong>Meta acumulada</strong><br>${formatNumber(report.goal)}</div><div class="card"><strong>Avance acumulado</strong><br>${formatNumber(report.progress)}</div><div class="card"><strong>Cumplimiento</strong><br>${report.percentage}%</div><div class="card"><strong>Horas hombre</strong><br>${formatNumber(report.hours)} h</div><div class="card"><strong>Rendimiento promedio</strong><br>${formatNumber(report.avgWorker)}</div><div class="card"><strong>Pendientes</strong><br>${formatNumber(report.remaining)}</div></div><h2>Resumen ejecutivo</h2><p>${report.recommendation}</p><h2>Encargados destacados</h2>${rowsHtml(report.leaderRanking.slice(0, 5))}<h2>Encargados con retraso</h2>${rowsHtml([...report.leaderRanking].reverse().slice(0, 5))}<h2>Ranking de trabajadores</h2>${rowsHtml(report.workerRanking.slice(0, 10))}<h2>Sectores pendientes</h2>${rowsHtml(report.pendingSectors.slice(0, 10))}<h2>Observaciones</h2><p>Reporte generado con datos locales disponibles en AgroNex.</p></body></html>`;
-}
-
-function rowsHtml(rows: RankingRow[]) {
-  return `<table><thead><tr><th>Nombre</th><th>Detalle</th><th>Valor</th></tr></thead><tbody>${rows.map((row) => `<tr><td>${row.label}</td><td>${row.detail}</td><td>${formatNumber(row.value)} ${row.unit}</td></tr>`).join("")}</tbody></table>`;
-}
-
-function downloadFile(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
 
 function PlanTaskModal({ crew, date, pending, usePending, sectors, labors, units, onClose, onSave }: { crew: Crew; date: string; pending: number; usePending: boolean; sectors: string[]; labors: string[]; units: string[]; onClose: () => void; onSave: (record: LocalPlanningRecord) => void }) {
   const suggestedGoal = Number((crew.goal + (usePending ? pending : 0)).toFixed(2));
@@ -362,4 +243,3 @@ function PlanLine({ label, value, strong = false }: { label: string; value: stri
 function Success({ text }: { text: string }) { return <div role="status" className="mt-5 flex items-center gap-2 rounded-xl bg-[#e9f6ef] px-4 py-3 text-sm font-bold text-[#18794e]"><CheckCircle2 size={18} />{text}</div>; }
 function formatDateTime(value: string) { return new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function formatNumber(value: number) { return Number((Number.isFinite(value) ? value : 0).toFixed(2)).toString(); }
-
