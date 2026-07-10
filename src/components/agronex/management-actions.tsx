@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { MoreHorizontal, Plus, Trash2 } from "lucide-react";
-import type { Attendance, Crew, LeaderUser, OperationStatus, Worker } from "@/data/agronexData";
+import { DEFAULT_WORK_HOURS, type Attendance, type Crew, type LeaderUser, type OperationStatus, type Worker } from "@/data/agronexData";
 import { createLocalId } from "@/lib/agronex-offline";
 import { useAgroSession } from "./session-context";
 
 const field = "mt-2 min-h-11 w-full rounded-xl border border-[#dbe5de] bg-white px-3 text-sm font-medium text-[#244637] outline-none focus:border-[#238358] focus:ring-4 focus:ring-[#238358]/10";
 
 export function LeaderActionMenu({ leader }: { leader: LeaderUser }) {
-  const { workers, updateLeader, deleteLeader } = useAgroSession();
+  const { currentOperation, operationCatalog, workers, updateLeader, deleteLeader } = useAgroSession();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"edit" | "delete" | null>(null);
   const [message, setMessage] = useState("");
@@ -28,14 +28,14 @@ export function LeaderActionMenu({ leader }: { leader: LeaderUser }) {
 
       {mode === "edit" && (
         <Modal title="Editar encargado" onClose={close}>
-          <form onSubmit={(event) => { event.preventDefault(); updateLeader(draft); setMessage("Encargado actualizado correctamente."); close(); window.setTimeout(() => setMessage(""), 3500); }} className="space-y-3">
+          <form onSubmit={(event) => { event.preventDefault(); updateLeader({ ...draft, crop: currentOperation }); setMessage("Encargado actualizado correctamente."); close(); window.setTimeout(() => setMessage(""), 3500); }} className="space-y-3">
             <TextInput label="Nombre" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
-            <TextInput label="Área/labor" value={draft.labor} onChange={(value) => setDraft({ ...draft, labor: value })} />
-            <TextInput label="Cultivo" value={draft.crop} onChange={(value) => setDraft({ ...draft, crop: value })} />
-            <TextInput label="Sector" value={draft.sector} onChange={(value) => setDraft({ ...draft, sector: value })} />
+            <SelectInput label="Área/labor" value={draft.labor} onChange={(value) => setDraft({ ...draft, labor: value })} items={operationCatalog.labors} />
+            <TextInput label="Operación" value={currentOperation} onChange={() => {}} disabled />
+            <SelectInput label="Sector/Bloque" value={draft.sector} onChange={(value) => setDraft({ ...draft, sector: value })} items={operationCatalog.sectors} />
             <TextInput label="Cuadrilla" value={draft.crewName} onChange={(value) => setDraft({ ...draft, crewName: value })} />
-            <SelectInput label="Estado" value={draft.status} onChange={(value) => setDraft({ ...draft, status: value as OperationStatus })} items={["En proceso", "Prioridad", "Terminado", "Pendiente"]} />
-            <TextInput label="Contraseña temporal" value={draft.accessPassword} onChange={(value) => setDraft({ ...draft, accessPassword: value })} />
+            <SelectInput label="Estado" value={draft.status} onChange={(value) => setDraft({ ...draft, status: value as OperationStatus })} items={["Pendiente", "Programado", "En proceso", "Prioridad", "Terminado"]} />
+            <TextInput label="Contraseña temporal" value={draft.accessPassword} onChange={(value) => setDraft({ ...draft, accessPassword: value })} type="password" />
             <button className="ag-primary w-full" type="submit">Guardar cambios</button>
           </form>
         </Modal>
@@ -66,7 +66,7 @@ export function WorkerActionMenu({ worker, leaderScope }: { worker: Worker; lead
   const assignLeader = (leaderId: string) => {
     const leader = selectableLeaders.find((item) => item.id === leaderId) ?? selectableLeaders[0];
     const crew = crews.find((item) => item.id === leader.crewId) ?? leaderScope?.crew;
-    setDraft({ ...draft, assignedTo: leader.id, assignedName: leader.name, crewId: leader.crewId, crewName: leader.crewName, unit: crew?.unit ?? draft.unit, status: "Activo" });
+    setDraft({ ...draft, assignedTo: leader.id, assignedName: leader.name, crewId: leader.crewId, crewName: leader.crewName, unit: crew?.unit ?? draft.unit, status: "Activo", crop: leader.crop, labor: leader.labor, sector: leader.sector });
   };
 
   return (
@@ -110,7 +110,7 @@ export function AddWorkerButton({ leader, crew }: { leader: LeaderUser; crew: Cr
   const { addWorker } = useAgroSession();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
-  const [draft, setDraft] = useState({ name: "", status: "Activo" as Worker["status"], attendance: "Presente" as Attendance, dailyOutput: 0, hoursWorked: crew.hoursPerWorker, unit: crew.unit, observation: "" });
+  const [draft, setDraft] = useState({ name: "", status: "Activo" as Worker["status"], attendance: "Presente" as Attendance, dailyOutput: 0, hoursWorked: DEFAULT_WORK_HOURS, unit: crew.unit, observation: "" });
 
   const save = (event: React.FormEvent) => {
     event.preventDefault();
@@ -127,9 +127,12 @@ export function AddWorkerButton({ leader, crew }: { leader: LeaderUser; crew: Cr
       unit: draft.unit,
       hoursWorked: draft.attendance === "Ausente" ? 0 : draft.hoursWorked,
       observation: draft.observation,
+      crop: crew.crop,
+      labor: crew.labor,
+      sector: crew.sector,
     });
     setOpen(false);
-    setDraft({ name: "", status: "Activo", attendance: "Presente", dailyOutput: 0, hoursWorked: crew.hoursPerWorker, unit: crew.unit, observation: "" });
+    setDraft({ name: "", status: "Activo", attendance: "Presente", dailyOutput: 0, hoursWorked: DEFAULT_WORK_HOURS, unit: crew.unit, observation: "" });
     setMessage("Trabajador agregado correctamente.");
     window.setTimeout(() => setMessage(""), 3500);
   };
@@ -180,8 +183,8 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
   );
 }
 
-function TextInput({ label, value, onChange, disabled = false, required = true }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; required?: boolean }) {
-  return <label className="ag-label block">{label}<input className={field} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} required={required} /></label>;
+function TextInput({ label, value, onChange, disabled = false, required = true, type = "text" }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; required?: boolean; type?: "text" | "password" }) {
+  return <label className="ag-label block">{label}<input className={field} type={type} value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} required={required} /></label>;
 }
 
 function NumberInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {

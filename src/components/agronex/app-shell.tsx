@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   BarChart3,
@@ -18,13 +18,17 @@ import {
 } from "lucide-react";
 import {
   crews,
+  getBaseGoal,
   getCrewForLeader,
+  getOperationCatalog,
   getWorkersForCrew,
   leaders,
+  operations,
   type AppRole,
   type AppScreen,
   type Crew,
   type LeaderUser,
+  type OperationName,
   type Worker,
 } from "@/data/agronexData";
 import {
@@ -39,6 +43,7 @@ import {
   type LocalProgressRecord,
   type SyncQueueRecord,
 } from "@/lib/agronex-offline";
+import { applyProductivityToCrew, calculateCrewProductivity, normalizeWorkerAttendance } from "@/lib/agronex-productivity";
 import { AgroLogo } from "./brand";
 import {
   LeaderHome,
@@ -81,6 +86,7 @@ export function AgroNexApp() {
   const [stage, setStage] = useState<"welcome" | "user-select" | "supervisor-access" | "app">("welcome");
   const [role, setRole] = useState<AppRole>("encargado");
   const [screen, setScreen] = useState<AppScreen>("inicio");
+  const [selectedOperation, setSelectedOperation] = useState<OperationName>("Palto");
   const [selectedLeader, setSelectedLeader] = useState<LeaderUser | null>(null);
   const [sessionLeaders, setSessionLeaders] = useState<LeaderUser[]>(localSnapshot.leaders);
   const [sessionCrews, setSessionCrews] = useState<Crew[]>(localSnapshot.crews);
@@ -94,6 +100,13 @@ export function AgroNexApp() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(localSnapshot.lastSyncAt);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const [connectionNotice, setConnectionNotice] = useState<string | null>(() => typeof navigator !== "undefined" && !navigator.onLine ? "Sin conexión. Los datos se guardarán en este equipo." : null);
+  const operationCatalog = useMemo(() => getOperationCatalog(selectedOperation), [selectedOperation]);
+  const filteredLeaders = useMemo(() => sessionLeaders.filter((leader) => leader.crop === selectedOperation), [selectedOperation, sessionLeaders]);
+  const filteredCrews = useMemo(() => sessionCrews.filter((crew) => crew.crop === selectedOperation), [selectedOperation, sessionCrews]);
+  const filteredCrewIds = useMemo(() => new Set(filteredCrews.map((crew) => crew.id)), [filteredCrews]);
+  const filteredWorkers = useMemo(() => sessionWorkers.filter((worker) => filteredCrewIds.has(worker.crewId) || worker.crop === selectedOperation), [filteredCrewIds, selectedOperation, sessionWorkers]);
+  const filteredProgressRecords = useMemo(() => progressRecords.filter((record) => record.crop === selectedOperation), [progressRecords, selectedOperation]);
+  const filteredPlanningRecords = useMemo(() => planningRecords.filter((record) => record.crop === selectedOperation), [planningRecords, selectedOperation]);
 
   useEffect(() => {
     saveAgroLocalSnapshot({
@@ -135,6 +148,12 @@ export function AgroNexApp() {
     if (!isOnline || !syncQueue.some((record) => record.status === "pending")) return;
     runSync("auto");
   }, [isOnline, syncQueue]);
+
+  const changeOperation = (operation: OperationName) => {
+    setSelectedOperation(operation);
+    setSelectedLeader(null);
+    setScreen("inicio");
+  };
 
   const enterLeader = (leader: LeaderUser) => {
     setSelectedLeader(leader);
@@ -202,27 +221,27 @@ export function AgroNexApp() {
     if (!selectedLeader) return;
 
     const crew = sessionCrews.find((item) => item.leaderId === selectedLeader.id) ?? getCrewForLeader(selectedLeader.id);
+    const normalizedWorkers = submission.workers.map((worker) => normalizeWorkerAttendance(worker, worker.attendance));
+    const summary = calculateCrewProductivity(crew, normalizedWorkers);
     const record = buildProgressRecord({
-      submission,
+      submission: { ...submission, progress: summary.progress, hours: summary.manHours, workers: normalizedWorkers },
       leaderId: selectedLeader.id,
       leaderName: selectedLeader.name,
       crew,
       date: operationalDate,
     });
-    const present = submission.workers.filter((worker) => worker.attendance === "Presente");
-    const percentage = crew.goal > 0 ? Math.min(100, Math.round((submission.progress / crew.goal) * 100)) : 0;
 
-    setSessionWorkers((current) => current.map((worker) => submission.workers.find((item) => item.id === worker.id) ?? worker));
+    setSessionWorkers((current) => current.map((worker) => normalizedWorkers.find((item) => item.id === worker.id) ?? worker));
     setSessionCrews((current) => current.map((item) => item.leaderId !== selectedLeader.id ? item : {
       ...item,
-      progress: submission.progress,
-      remaining: Math.max(0, Number((item.goal - submission.progress).toFixed(2))),
-      percentage,
-      hoursPerWorker: submission.hours,
-      presentWorkers: present.length,
-      absentWorkers: submission.workers.length - present.length,
-      manHours: present.reduce((sum, worker) => sum + worker.hoursWorked, 0),
-      status: percentage >= 100 ? "Terminado" : submission.progress > 0 ? "En proceso" : "Pendiente",
+      progress: summary.progress,
+      remaining: summary.remaining,
+      percentage: summary.percentage,
+      hoursPerWorker: summary.presentWorkers ? 8 : 0,
+      presentWorkers: summary.presentWorkers,
+      absentWorkers: summary.absentWorkers,
+      manHours: summary.manHours,
+      status: summary.percentage >= 100 ? "Terminado" : summary.progress > 0 ? "En proceso" : "Pendiente",
     }));
     setProgressRecords((current) => [record, ...current]);
     setDailyRecords((current) => {
@@ -232,8 +251,8 @@ export function AgroNexApp() {
         [operationalDate]: {
           ...day,
           progress: [record, ...day.progress.filter((item) => item.leaderId !== selectedLeader.id)],
-          attendance: [...submission.workers],
-          workerOutputs: [...submission.workers],
+          attendance: [...normalizedWorkers],
+          workerOutputs: [...normalizedWorkers],
           pending: record.remaining > 0
             ? [
                 {
@@ -279,12 +298,15 @@ export function AgroNexApp() {
           hoursWorked: 0,
           observation: "",
           unit: record.unit,
+          crop: record.crop as OperationName,
+          labor: record.labor,
+          sector: record.sector,
         } : worker));
       }
       setSessionCrews((current) => current.map((crew) => crew.id !== record.crewId ? crew : {
         ...crew,
         labor: record.labor,
-        crop: record.crop,
+        crop: record.crop as OperationName,
         sector: record.sector,
         goal: record.goal,
         progress,
@@ -302,47 +324,58 @@ export function AgroNexApp() {
   };
 
   const addLeader = (leader: LeaderUser) => {
+    const scopedLeader = {
+      ...leader,
+      crop: selectedOperation,
+      sector: operationCatalog.sectors.includes(leader.sector) ? leader.sector : operationCatalog.sectors[0],
+      labor: operationCatalog.labors.includes(leader.labor) ? leader.labor : operationCatalog.labors[0],
+    };
+    const baseGoal = getBaseGoal(selectedOperation, scopedLeader.labor);
     const crew: Crew = {
-      id: leader.crewId,
-      name: leader.crewName,
-      leaderId: leader.id,
-      leaderName: leader.name,
-      labor: leader.labor,
-      crop: leader.crop,
-      sector: leader.sector,
+      id: scopedLeader.crewId,
+      name: scopedLeader.crewName,
+      leaderId: scopedLeader.id,
+      leaderName: scopedLeader.name,
+      labor: scopedLeader.labor,
+      crop: scopedLeader.crop,
+      sector: scopedLeader.sector,
       totalWorkers: 0,
       presentWorkers: 0,
       absentWorkers: 0,
-      goal: 0,
+      goal: baseGoal?.goal ?? 0,
       progress: 0,
-      remaining: 0,
-      unit: "unidades",
+      remaining: baseGoal?.goal ?? 0,
+      unit: baseGoal?.unit ?? "unidades",
       percentage: 0,
       hoursPerWorker: 0,
       manHours: 0,
-      status: leader.status,
+      status: scopedLeader.status,
     };
-    setSessionLeaders((current) => [leader, ...current]);
+    setSessionLeaders((current) => [scopedLeader, ...current]);
     setSessionCrews((current) => [crew, ...current]);
-    enqueueSync(createSyncRecord("encargado", "create", leader));
+    enqueueSync(createSyncRecord("encargado", "create", scopedLeader));
   };
 
   const addWorker = (worker: Worker) => {
+    const normalized = normalizeWorkerAttendance(worker, worker.attendance);
     setSessionWorkers((current) => {
-      const next = [worker, ...current];
+      const next = [normalized, ...current];
       setSessionCrews((crews) => recalculateCrews(crews, next, sessionLeaders));
       return next;
     });
-    enqueueSync(createSyncRecord("trabajador", "create", worker));
+    setDailyRecords((current) => updateDailyWorkers(current, operationalDate, [normalized]));
+    enqueueSync(createSyncRecord("trabajador", "create", normalized));
   };
 
   const updateWorker = (worker: Worker) => {
+    const normalized = normalizeWorkerAttendance(worker, worker.attendance);
     setSessionWorkers((current) => {
-      const next = current.map((item) => item.id === worker.id ? worker : item);
+      const next = current.map((item) => item.id === normalized.id ? normalized : item);
       setSessionCrews((crews) => recalculateCrews(crews, next, sessionLeaders));
       return next;
     });
-    enqueueSync(createSyncRecord("trabajador", "update", worker));
+    setDailyRecords((current) => updateDailyWorkers(current, operationalDate, [normalized]));
+    enqueueSync(createSyncRecord("trabajador", "update", normalized));
   };
 
   const deleteWorker = (workerId: string) => {
@@ -358,7 +391,7 @@ export function AgroNexApp() {
   const updateLeader = (leader: LeaderUser) => {
     setSessionLeaders((current) => current.map((item) => item.id === leader.id ? leader : item));
     setSessionCrews((current) => current.map((crew) => crew.leaderId === leader.id ? { ...crew, leaderName: leader.name, labor: leader.labor, crop: leader.crop, sector: leader.sector, name: leader.crewName, status: leader.status } : crew));
-    setSessionWorkers((current) => current.map((worker) => worker.assignedTo === leader.id ? { ...worker, assignedName: leader.name, crewId: leader.crewId, crewName: leader.crewName, unit: worker.unit } : worker));
+    setSessionWorkers((current) => current.map((worker) => worker.assignedTo === leader.id ? { ...worker, assignedName: leader.name, crewId: leader.crewId, crewName: leader.crewName, crop: leader.crop, labor: leader.labor, sector: leader.sector, unit: worker.unit } : worker));
     if (selectedLeader?.id === leader.id) setSelectedLeader(leader);
     enqueueSync(createSyncRecord("encargado", "update", leader));
   };
@@ -375,18 +408,20 @@ export function AgroNexApp() {
     enqueueSync(createSyncRecord("encargado", "delete", deleted ?? { id: leaderId }));
   };
 
-  if (stage === "welcome") return <Welcome onLeader={() => setStage("user-select")} onSupervisor={requestSupervisor} />;
-  if (stage === "user-select") return <UserSelector leaders={sessionLeaders} onBack={() => setStage("welcome")} onSelect={enterLeader} />;
+  if (stage === "welcome") return <Welcome selectedOperation={selectedOperation} onOperationChange={changeOperation} onLeader={() => setStage("user-select")} onSupervisor={requestSupervisor} />;
+  if (stage === "user-select") return <UserSelector operation={selectedOperation} leaders={filteredLeaders} onBack={() => setStage("welcome")} onSelect={enterLeader} />;
   if (stage === "supervisor-access") return <SupervisorAccess onCancel={() => setStage("welcome")} onSuccess={authenticateSupervisor} />;
 
   return (
     <AgroSessionProvider
       value={{
-        crews: sessionCrews,
-        leaders: sessionLeaders,
-        workers: sessionWorkers,
-        progressRecords,
-        planningRecords,
+        crews: filteredCrews,
+        leaders: filteredLeaders,
+        workers: filteredWorkers,
+        currentOperation: selectedOperation,
+        operationCatalog,
+        progressRecords: filteredProgressRecords,
+        planningRecords: filteredPlanningRecords,
         dailyRecords,
         operationalDate,
         operationalNotice,
@@ -408,8 +443,9 @@ export function AgroNexApp() {
         role={role}
         screen={screen}
         leader={selectedLeader}
-        sessionCrews={sessionCrews}
-        sessionWorkers={sessionWorkers}
+        currentOperation={selectedOperation}
+        sessionCrews={filteredCrews}
+        sessionWorkers={filteredWorkers}
         onSaveProgress={saveProgress}
         onNavigate={setScreen}
         onChangeUser={() => setStage("user-select")}
@@ -419,22 +455,43 @@ export function AgroNexApp() {
   );
 }
 
-function Welcome({ onLeader, onSupervisor }: { onLeader: () => void; onSupervisor: () => void }) {
+function Welcome({
+  selectedOperation,
+  onOperationChange,
+  onLeader,
+  onSupervisor,
+}: {
+  selectedOperation: OperationName;
+  onOperationChange: (operation: OperationName) => void;
+  onLeader: () => void;
+  onSupervisor: () => void;
+}) {
   return (
     <main className="relative grid min-h-dvh overflow-hidden bg-[#123f2e] px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2.5rem,env(safe-area-inset-top))] text-white sm:place-items-center">
       <div className="ag-grid absolute inset-0 opacity-20" />
-      <div className="absolute -right-28 top-[-80px] size-80 rounded-full bg-[#2c8b61]/30 blur-3xl" />
       <div className="relative z-10 mx-auto flex min-h-[calc(100dvh-5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-sm flex-col justify-between sm:min-h-0 sm:py-12">
         <button onClick={onSupervisor} aria-label="Acceso de supervisor" className="w-fit rounded-2xl text-left">
           <AgroLogo light />
         </button>
 
-        <div className="my-auto py-14 sm:my-14 sm:py-0">
+        <div className="my-auto py-12 sm:my-12 sm:py-0">
           <div className="mb-6 grid size-20 place-items-center rounded-[26px] border border-white/15 bg-white/10 shadow-2xl backdrop-blur">
             <UsersRound size={40} className="text-[#bce8cb]" strokeWidth={1.8} />
           </div>
-          <h1 className="text-3xl font-extrabold leading-[1.08] tracking-[-.03em] sm:text-4xl">Tu operación de campo, clara cada día.</h1>
-          <p className="mt-5 max-w-xs text-[15px] leading-7 text-white/65">Registra avances, controla cuadrillas y planifica la siguiente jornada.</p>
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-white/45">Operación agrícola</p>
+          <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-white/10 p-1.5">
+            {operations.map((operation) => (
+              <button
+                key={operation.id}
+                onClick={() => onOperationChange(operation.name)}
+                className={`min-h-12 rounded-xl text-sm font-extrabold transition ${selectedOperation === operation.name ? "bg-white text-[#174c37]" : "text-white/70"}`}
+                type="button"
+              >
+                {operation.name}
+              </button>
+            ))}
+          </div>
+          <p className="mt-4 text-sm leading-6 text-white/65">Selecciona el cultivo antes de ingresar.</p>
         </div>
 
         <button onClick={onLeader} className="flex min-h-14 w-full items-center justify-between rounded-2xl bg-white px-5 font-extrabold text-[#174c37] shadow-xl shadow-black/15 transition active:scale-[.98]">
@@ -501,6 +558,7 @@ function AppShell({
   role,
   screen,
   leader,
+  currentOperation,
   sessionCrews,
   sessionWorkers,
   onSaveProgress,
@@ -511,6 +569,7 @@ function AppShell({
   role: AppRole;
   screen: AppScreen;
   leader: LeaderUser | null;
+  currentOperation: OperationName;
   sessionCrews: Crew[];
   sessionWorkers: Worker[];
   onSaveProgress: (submission: ProgressSubmission) => void;
@@ -566,7 +625,7 @@ function AppShell({
           {primaryNav(role).map((item) => <NavButton key={item.screen} {...item} active={screen === item.screen} onClick={() => onNavigate(item.screen)} desktop />)}
         </nav>
         <div className="mt-auto rounded-2xl bg-[#f0f6f2] p-4">
-          <p className="text-xs font-bold text-[#315343]">{role === "supervisor" ? "Operación general" : crew?.name}</p>
+          <p className="text-xs font-bold text-[#315343]">{role === "supervisor" ? `Operación ${currentOperation}` : crew?.name}</p>
           <p className="mt-1 text-[11px] leading-5 text-[#75857c]">{role === "supervisor" ? `${sessionCrews.length} labores activas` : `${crew?.labor} · ${crew?.sector}`}</p>
           {crew && <div className="mt-3"><ProgressBarMini value={crew.percentage} /></div>}
         </div>
@@ -662,9 +721,9 @@ function primaryNav(role: AppRole): { screen: AppScreen; label: string; icon: ty
       ]
     : [
         { screen: "inicio", label: "Inicio", icon: Home },
-        { screen: "planificacion", label: "Planificar", icon: LayoutGrid },
-        { screen: "avances", label: "Avances", icon: ListChecks },
-        { screen: "reportes", label: "Reportes", icon: BarChart3 },
+        { screen: "planificacion", label: "Planificación", icon: LayoutGrid },
+        { screen: "sectores", label: "Sectores", icon: ListChecks },
+        { screen: "reportes", label: "Productividad", icon: BarChart3 },
         { screen: "mas", label: "Más", icon: MoreHorizontal },
       ];
 }
@@ -758,27 +817,33 @@ function recalculateCrews(currentCrews: Crew[], workers: Worker[], leaders: Lead
   return currentCrews.map((crew) => {
     const leader = leaders.find((item) => item.id === crew.leaderId);
     const crewWorkers = workers.filter((worker) => worker.crewId === crew.id && worker.status !== "Sin cuadrilla");
-    const presentWorkers = crewWorkers.filter((worker) => worker.attendance === "Presente");
-    const progress = Number(presentWorkers.reduce((sum, worker) => sum + Number(worker.dailyOutput || 0), 0).toFixed(2));
-    const goal = Number(crew.goal || 0);
-    const remaining = Math.max(0, Number((goal - progress).toFixed(2)));
-    const percentage = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : 0;
 
-    return {
+    return applyProductivityToCrew({
       ...crew,
       leaderName: leader?.name ?? crew.leaderName,
       labor: leader?.labor ?? crew.labor,
       crop: leader?.crop ?? crew.crop,
       sector: leader?.sector ?? crew.sector,
       name: leader?.crewName ?? crew.name,
-      totalWorkers: crewWorkers.length,
-      presentWorkers: presentWorkers.length,
-      absentWorkers: crewWorkers.length - presentWorkers.length,
-      progress,
-      remaining,
-      percentage,
-      manHours: Number(presentWorkers.reduce((sum, worker) => sum + Number(worker.hoursWorked || 0), 0).toFixed(2)),
-    };
+    }, crewWorkers);
   });
+}
+
+function updateDailyWorkers(current: Record<string, DailyRecord>, date: string, workers: Worker[]) {
+  const day = current[date] ?? createEmptyDailyRecord();
+  const workerIds = new Set(workers.map((worker) => worker.id));
+  const merge = (list: Worker[]) => [
+    ...workers,
+    ...list.filter((worker) => !workerIds.has(worker.id)),
+  ];
+
+  return {
+    ...current,
+    [date]: {
+      ...day,
+      attendance: merge(day.attendance),
+      workerOutputs: merge(day.workerOutputs),
+    },
+  };
 }
 

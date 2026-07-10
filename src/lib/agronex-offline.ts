@@ -1,4 +1,4 @@
-import type { Crew, LeaderUser, Worker } from "@/data/agronexData";
+import { DEFAULT_WORK_HOURS, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
 import type { ProgressSubmission } from "@/components/agronex/register-form";
 
 export type SyncRecordType = "avance" | "asistencia" | "trabajador" | "tarea" | "encargado";
@@ -86,7 +86,7 @@ export type AgroLocalSnapshot = {
   lastSyncAt: string | null;
 };
 
-const STORAGE_KEY = "agronex-offline-state-v2";
+const STORAGE_KEY = "agronex-offline-state-v4";
 
 export function getLocalDate() {
   const date = new Date();
@@ -144,7 +144,7 @@ export function loadAgroLocalSnapshot(initialLeaders: LeaderUser[], initialCrews
   if (typeof window === "undefined") return createInitialSnapshot(initialLeaders, initialCrews, initialWorkers);
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem("agronex-offline-state-v1");
+    const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialSnapshot(initialLeaders, initialCrews, initialWorkers);
 
     const parsed = JSON.parse(raw) as Partial<AgroLocalSnapshot>;
@@ -277,14 +277,15 @@ function createInitialSnapshot(initialLeaders: LeaderUser[], initialCrews: Crew[
   const today = getLocalDate();
   const workers = resetWorkersForDay(initialWorkers);
   const crews = resetCrewsForDay(initialCrews, workers);
+  const history = createInitialHistory(today, initialCrews, initialWorkers);
 
   return {
     leaders: initialLeaders,
     crews,
     workers,
-    progressRecords: [],
-    planningRecords: [],
-    dailyRecords: { [today]: createEmptyDailyRecord() },
+    progressRecords: history.progressRecords,
+    planningRecords: history.planningRecords,
+    dailyRecords: { ...history.dailyRecords, [today]: createEmptyDailyRecord() },
     operationalDate: today,
     operationalNotice: null,
     syncQueue: [],
@@ -314,7 +315,7 @@ function rollToNewOperationalDate(snapshot: AgroLocalSnapshot, today: string): A
     crews: resetCrewsForDay(snapshot.crews, workers),
     workers,
     operationalDate: today,
-    operationalNotice: "Nuevo día operativo. Planifica las tareas de hoy.",
+    operationalNotice: "Nuevo día operativo. Revisa o confirma la planificación de hoy.",
     dailyRecords: {
       ...snapshot.dailyRecords,
       [previousDate]: { ...previousDaily, closedAt: previousDaily.closedAt ?? new Date().toISOString(), pending },
@@ -353,6 +354,113 @@ function normalizeDailyRecords(
   });
 
   return normalized;
+}
+
+function createInitialHistory(today: string, crews: Crew[], workers: Worker[]) {
+  const progressRecords: LocalProgressRecord[] = [];
+  const planningRecords: LocalPlanningRecord[] = [];
+  const dailyRecords: Record<string, DailyRecord> = {};
+  const weeklyProgress: Record<string, number[]> = {
+    "leader-marcos": [58, 62, 55, 60, 48, 65, 52],
+    "leader-carlos": [3.8, 4.1, 3.5, 4, 3.2, 4.4, 3.7],
+    "leader-pedro": [580, 610, 540, 620, 560, 630, 590],
+    "leader-lopez": [5, 5, 4.5, 5, 5, 5, 4.8],
+    "leader-susana": [1120, 1260, 1180, 1210, 1090, 1300, 1160],
+  };
+
+  Object.entries(weeklyProgress).forEach(([leaderId, values]) => {
+    const crew = crews.find((item) => item.leaderId === leaderId);
+    if (!crew) return;
+    const crewWorkers = workers.filter((worker) => worker.crewId === crew.id && worker.status !== "Sin cuadrilla");
+
+    values.forEach((progress, index) => {
+      const date = addDays(today, index - 7);
+      const presentCount = Math.max(1, Math.min(crewWorkers.length, crewWorkers.length - ((index + crew.id.length) % 3)));
+      const presentWorkers = crewWorkers.slice(0, presentCount);
+      const absentWorkers = crewWorkers.slice(presentCount);
+      const average = progress / presentWorkers.length;
+      const historicWorkers = [
+        ...presentWorkers.map((worker, workerIndex) => ({
+          ...worker,
+          attendance: "Presente" as const,
+          dailyOutput: Number((average * (0.86 + ((workerIndex * 5) % 7) * 0.045)).toFixed(2)),
+          hoursWorked: DEFAULT_WORK_HOURS,
+          observation: "Registro de campo consolidado.",
+        })),
+        ...absentWorkers.map((worker) => ({
+          ...worker,
+          attendance: "Ausente" as const,
+          dailyOutput: 0,
+          hoursWorked: 0,
+          observation: "Ausencia registrada.",
+        })),
+      ];
+      const normalizedProgress = Number(historicWorkers.filter((worker) => worker.attendance === "Presente").reduce((sum, worker) => sum + worker.dailyOutput, 0).toFixed(2));
+      const remaining = Math.max(0, Number((crew.goal - normalizedProgress).toFixed(2)));
+      const percentage = crew.goal > 0 ? Math.round((normalizedProgress / crew.goal) * 100) : 0;
+      const task: LocalPlanningRecord = {
+        id: `history-task-${crew.id}-${date}`,
+        date,
+        createdAt: `${date}T06:00:00.000Z`,
+        leaderId: crew.leaderId,
+        leaderName: crew.leaderName,
+        crewId: crew.id,
+        crewName: crew.name,
+        labor: crew.labor,
+        crop: crew.crop,
+        sector: crew.sector,
+        goal: crew.goal,
+        unit: crew.unit,
+        priority: remaining > 0 ? "Alta" : "Media",
+        observation: remaining > 0 ? `Continuar ${remaining} ${crew.unit} pendientes.` : "Labor completada.",
+      };
+      const record: LocalProgressRecord = {
+        id: `history-progress-${crew.id}-${date}`,
+        date,
+        createdAt: `${date}T17:00:00.000Z`,
+        leaderId: crew.leaderId,
+        leaderName: crew.leaderName,
+        crewId: crew.id,
+        crewName: crew.name,
+        labor: crew.labor,
+        crop: crew.crop,
+        sector: crew.sector,
+        goal: crew.goal,
+        progress: normalizedProgress,
+        remaining,
+        unit: crew.unit,
+        percentage,
+        hours: presentCount * DEFAULT_WORK_HOURS,
+        observation: remaining > 0 ? `Pendiente acumulado: ${remaining} ${crew.unit}.` : "Jornada completada.",
+        saveMode: "complete",
+        workers: historicWorkers,
+      };
+
+      planningRecords.push(task);
+      progressRecords.push(record);
+      dailyRecords[date] ??= createEmptyDailyRecord();
+      dailyRecords[date] = {
+        ...dailyRecords[date],
+        tasks: [task, ...dailyRecords[date].tasks],
+        progress: [record, ...dailyRecords[date].progress],
+        attendance: [...historicWorkers, ...dailyRecords[date].attendance],
+        workerOutputs: [...historicWorkers, ...dailyRecords[date].workerOutputs],
+        pending: remaining > 0 ? [{
+          crewId: crew.id,
+          leaderId: crew.leaderId,
+          leaderName: crew.leaderName,
+          labor: crew.labor,
+          sector: crew.sector,
+          remaining,
+          unit: crew.unit,
+          date,
+        }, ...dailyRecords[date].pending] : dailyRecords[date].pending,
+        closedAt: `${date}T18:00:00.000Z`,
+      };
+    });
+  });
+
+  return { progressRecords, planningRecords, dailyRecords };
 }
 
 function getAccumulatedPending(snapshot: AgroLocalSnapshot) {

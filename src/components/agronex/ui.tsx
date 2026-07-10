@@ -31,6 +31,7 @@ export function StatusBadge({ status }: { status: OperationStatus | "Presente" |
     "Prioridad": "bg-[#fff0ed] text-[#bd513c]",
     "Ausente": "bg-[#fff0ed] text-[#bd513c]",
     "En proceso": "bg-[#fff5dd] text-[#9a6506]",
+    "Programado": "bg-[#edf5fc] text-[#3271a8]",
     "Pendiente": "bg-[#edf2f8] text-[#50708f]",
   };
   return <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${styles[status]}`}>{status}</span>;

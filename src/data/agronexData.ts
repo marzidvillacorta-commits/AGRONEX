@@ -1,7 +1,9 @@
-﻿export type AppRole = "encargado" | "supervisor";
+export type AppRole = "encargado" | "supervisor";
 export type Attendance = "Presente" | "Ausente";
-export type OperationStatus = "En proceso" | "Prioridad" | "Terminado" | "Pendiente";
+export type OperationStatus = "En proceso" | "Prioridad" | "Terminado" | "Pendiente" | "Programado";
 export type Priority = "Alta" | "Media" | "Normal";
+export type OperationName = "Palto" | "Arándano";
+export const DEFAULT_WORK_HOURS = 8;
 
 export type AppScreen =
   | "inicio" | "registrar" | "cuadrilla" | "rendimiento" | "mas"
@@ -9,12 +11,27 @@ export type AppScreen =
   | "reportes" | "encargados" | "cuadrillas" | "sectores" | "configuracion"
   | "sincronizacion";
 
+export type Operation = {
+  id: string;
+  name: OperationName;
+  blocksLabel: "Sectores" | "Bloques";
+  blocks: string[];
+  labors: string[];
+};
+
+export type BaseGoal = {
+  operation: OperationName;
+  labor: string;
+  goal: number;
+  unit: string;
+};
+
 export type LeaderUser = {
   id: string;
   name: string;
   role: "Encargado de labor";
   labor: string;
-  crop: string;
+  crop: OperationName;
   sector: string;
   crewId: string;
   crewName: string;
@@ -35,6 +52,9 @@ export type Worker = {
   unit: string;
   hoursWorked: number;
   observation: string;
+  crop?: OperationName;
+  labor?: string;
+  sector?: string;
 };
 
 export type Crew = {
@@ -43,7 +63,7 @@ export type Crew = {
   leaderId: string;
   leaderName: string;
   labor: string;
-  crop: string;
+  crop: OperationName;
   sector: string;
   totalWorkers: number;
   presentWorkers: number;
@@ -64,7 +84,7 @@ export type PlannedTask = {
   assignedTo: string;
   assignedName: string;
   labor: string;
-  crop: string;
+  crop: OperationName;
   sector: string;
   crewId: string;
   goal: number;
@@ -86,24 +106,84 @@ export type WeeklyPerformance = {
   unit: string;
 };
 
+export const operations: Operation[] = [
+  {
+    id: "palto",
+    name: "Palto",
+    blocksLabel: "Sectores",
+    blocks: ["B1", "B2", "B3", "B4", "B5", "B6", "Lote 05", "Lote 07"],
+    labors: ["Machete", "Maleza", "Riego", "Poda", "Serrucho", "Fumigación", "Tractor", "Cosecha"],
+  },
+  {
+    id: "arandano",
+    name: "Arándano",
+    blocksLabel: "Bloques",
+    blocks: ["A1", "A2", "B3", "B4", "C1", "C2"],
+    labors: ["Cosecha", "Riego", "Poda", "Fumigación", "Selección", "Limpieza"],
+  },
+];
+
+export const baseGoals: BaseGoal[] = [
+  { operation: "Palto", labor: "Machete", goal: 60, unit: "líneas" },
+  { operation: "Palto", labor: "Riego", goal: 5, unit: "ha" },
+  { operation: "Palto", labor: "Maleza", goal: 4, unit: "ha" },
+  { operation: "Palto", labor: "Poda", goal: 600, unit: "plantas" },
+  { operation: "Palto", labor: "Serrucho", goal: 400, unit: "plantas" },
+  { operation: "Palto", labor: "Tractor", goal: 6, unit: "ha" },
+  { operation: "Palto", labor: "Fumigación", goal: 5, unit: "ha" },
+  { operation: "Palto", labor: "Cosecha", goal: 800, unit: "kg" },
+  { operation: "Arándano", labor: "Cosecha", goal: 1200, unit: "kg" },
+  { operation: "Arándano", labor: "Selección", goal: 900, unit: "kg" },
+  { operation: "Arándano", labor: "Riego", goal: 6, unit: "ha" },
+  { operation: "Arándano", labor: "Poda", goal: 800, unit: "plantas" },
+  { operation: "Arándano", labor: "Fumigación", goal: 5, unit: "ha" },
+  { operation: "Arándano", labor: "Limpieza", goal: 3, unit: "ha" },
+];
+
 export const leaders: LeaderUser[] = [
-  { id: "leader-marcos", name: "Marcos", role: "Encargado de labor", labor: "Machete", crop: "Palto", sector: "Lote 05", crewId: "crew-machete-01", crewName: "Cuadrilla Machete 01", status: "En proceso", accessPassword: "marcos123" },
-  { id: "leader-susana", name: "Susana", role: "Encargado de labor", labor: "Cosecha arándano", crop: "Arándano", sector: "Bloque B3", crewId: "crew-arandano-01", crewName: "Cuadrilla Arándano 01", status: "Prioridad", accessPassword: "susana123" },
-  { id: "leader-lopez", name: "López", role: "Encargado de labor", labor: "Riego", crop: "Palto", sector: "Sector A1", crewId: "crew-riego-01", crewName: "Cuadrilla Riego 01", status: "Terminado", accessPassword: "lopez123" },
-  { id: "leader-pedro", name: "Pedro", role: "Encargado de labor", labor: "Poda", crop: "Palto", sector: "Lote 04", crewId: "crew-poda-01", crewName: "Cuadrilla Poda 01", status: "En proceso", accessPassword: "pedro123" },
-  { id: "leader-carlos", name: "Carlos", role: "Encargado de labor", labor: "Maleza", crop: "Palto", sector: "Lote 07", crewId: "crew-maleza-01", crewName: "Cuadrilla Maleza 01", status: "Pendiente", accessPassword: "carlos123" },
+  { id: "leader-marcos", name: "Marcos", role: "Encargado de labor", labor: "Machete", crop: "Palto", sector: "B2", crewId: "crew-palto-machete-01", crewName: "Cuadrilla Palto Machete 01", status: "En proceso", accessPassword: "marcos123" },
+  { id: "leader-lopez", name: "López", role: "Encargado de labor", labor: "Riego", crop: "Palto", sector: "B1", crewId: "crew-palto-riego-01", crewName: "Cuadrilla Palto Riego 01", status: "Terminado", accessPassword: "lopez123" },
+  { id: "leader-pedro", name: "Pedro", role: "Encargado de labor", labor: "Poda", crop: "Palto", sector: "B6", crewId: "crew-palto-poda-01", crewName: "Cuadrilla Palto Poda 01", status: "En proceso", accessPassword: "pedro123" },
+  { id: "leader-carlos", name: "Carlos", role: "Encargado de labor", labor: "Maleza", crop: "Palto", sector: "B5", crewId: "crew-palto-maleza-01", crewName: "Cuadrilla Palto Maleza 01", status: "En proceso", accessPassword: "carlos123" },
+  { id: "leader-jose", name: "José", role: "Encargado de labor", labor: "Tractor", crop: "Palto", sector: "B3", crewId: "crew-palto-tractor-01", crewName: "Cuadrilla Palto Tractor 01", status: "Pendiente", accessPassword: "jose123" },
+  { id: "leader-ramiro", name: "Ramiro", role: "Encargado de labor", labor: "Fumigación", crop: "Palto", sector: "Lote 07", crewId: "crew-palto-fumigacion-01", crewName: "Cuadrilla Palto Fumigación 01", status: "Programado", accessPassword: "ramiro123" },
+  { id: "leader-susana", name: "Susana", role: "Encargado de labor", labor: "Cosecha", crop: "Arándano", sector: "B3", crewId: "crew-arandano-cosecha-01", crewName: "Cuadrilla Arándano Cosecha 01", status: "En proceso", accessPassword: "susana123" },
+  { id: "leader-rosa", name: "Rosa", role: "Encargado de labor", labor: "Selección", crop: "Arándano", sector: "B4", crewId: "crew-arandano-seleccion-01", crewName: "Cuadrilla Arándano Selección 01", status: "Prioridad", accessPassword: "rosa123" },
+  { id: "leader-luis", name: "Luis", role: "Encargado de labor", labor: "Riego", crop: "Arándano", sector: "A1", crewId: "crew-arandano-riego-01", crewName: "Cuadrilla Arándano Riego 01", status: "Terminado", accessPassword: "luis123" },
+  { id: "leader-marta", name: "Marta", role: "Encargado de labor", labor: "Poda", crop: "Arándano", sector: "C1", crewId: "crew-arandano-poda-01", crewName: "Cuadrilla Arándano Poda 01", status: "Programado", accessPassword: "marta123" },
+  { id: "leader-jorge", name: "Jorge", role: "Encargado de labor", labor: "Fumigación", crop: "Arándano", sector: "B4", crewId: "crew-arandano-fumigacion-01", crewName: "Cuadrilla Arándano Fumigación 01", status: "Pendiente", accessPassword: "jorge123" },
 ];
 
-export const crews: Crew[] = [
-  { id: "crew-machete-01", name: "Cuadrilla Machete 01", leaderId: "leader-marcos", leaderName: "Marcos", labor: "Machete", crop: "Palto", sector: "Lote 05", totalWorkers: 20, presentWorkers: 18, absentWorkers: 2, goal: 50, progress: 30, remaining: 20, unit: "líneas", percentage: 60, hoursPerWorker: 8, manHours: 144, status: "En proceso" },
-  { id: "crew-arandano-01", name: "Cuadrilla Arándano 01", leaderId: "leader-susana", leaderName: "Susana", labor: "Cosecha arándano", crop: "Arándano", sector: "Bloque B3", totalWorkers: 25, presentWorkers: 23, absentWorkers: 2, goal: 1200, progress: 980, remaining: 220, unit: "kg", percentage: 82, hoursPerWorker: 8, manHours: 184, status: "Prioridad" },
-  { id: "crew-riego-01", name: "Cuadrilla Riego 01", leaderId: "leader-lopez", leaderName: "López", labor: "Riego", crop: "Palto", sector: "Sector A1", totalWorkers: 8, presentWorkers: 8, absentWorkers: 0, goal: 5, progress: 5, remaining: 0, unit: "ha", percentage: 100, hoursPerWorker: 8, manHours: 64, status: "Terminado" },
-  { id: "crew-poda-01", name: "Cuadrilla Poda 01", leaderId: "leader-pedro", leaderName: "Pedro", labor: "Poda", crop: "Palto", sector: "Lote 04", totalWorkers: 15, presentWorkers: 14, absentWorkers: 1, goal: 600, progress: 420, remaining: 180, unit: "plantas", percentage: 70, hoursPerWorker: 8, manHours: 112, status: "En proceso" },
-  { id: "crew-maleza-01", name: "Cuadrilla Maleza 01", leaderId: "leader-carlos", leaderName: "Carlos", labor: "Maleza", crop: "Palto", sector: "Lote 07", totalWorkers: 16, presentWorkers: 15, absentWorkers: 1, goal: 4, progress: 2.8, remaining: 1.2, unit: "ha", percentage: 70, hoursPerWorker: 8, manHours: 120, status: "Pendiente" },
+const crewSeed: Array<Omit<Crew, "totalWorkers" | "presentWorkers" | "absentWorkers" | "progress" | "remaining" | "percentage" | "manHours"> & { total: number; present: number; progress: number }> = [
+  { id: "crew-palto-machete-01", name: "Cuadrilla Palto Machete 01", leaderId: "leader-marcos", leaderName: "Marcos", labor: "Machete", crop: "Palto", sector: "B2", total: 18, present: 16, goal: 60, progress: 48, unit: "líneas", hoursPerWorker: 8, status: "En proceso" },
+  { id: "crew-palto-riego-01", name: "Cuadrilla Palto Riego 01", leaderId: "leader-lopez", leaderName: "López", labor: "Riego", crop: "Palto", sector: "B1", total: 8, present: 8, goal: 5, progress: 5, unit: "ha", hoursPerWorker: 8, status: "Terminado" },
+  { id: "crew-palto-poda-01", name: "Cuadrilla Palto Poda 01", leaderId: "leader-pedro", leaderName: "Pedro", labor: "Poda", crop: "Palto", sector: "B6", total: 16, present: 15, goal: 600, progress: 410, unit: "plantas", hoursPerWorker: 8, status: "En proceso" },
+  { id: "crew-palto-maleza-01", name: "Cuadrilla Palto Maleza 01", leaderId: "leader-carlos", leaderName: "Carlos", labor: "Maleza", crop: "Palto", sector: "B5", total: 14, present: 13, goal: 4, progress: 2.6, unit: "ha", hoursPerWorker: 8, status: "En proceso" },
+  { id: "crew-palto-tractor-01", name: "Cuadrilla Palto Tractor 01", leaderId: "leader-jose", leaderName: "José", labor: "Tractor", crop: "Palto", sector: "B3", total: 4, present: 0, goal: 6, progress: 0, unit: "ha", hoursPerWorker: 0, status: "Pendiente" },
+  { id: "crew-palto-fumigacion-01", name: "Cuadrilla Palto Fumigación 01", leaderId: "leader-ramiro", leaderName: "Ramiro", labor: "Fumigación", crop: "Palto", sector: "Lote 07", total: 6, present: 0, goal: 5, progress: 0, unit: "ha", hoursPerWorker: 0, status: "Programado" },
+  { id: "crew-arandano-cosecha-01", name: "Cuadrilla Arándano Cosecha 01", leaderId: "leader-susana", leaderName: "Susana", labor: "Cosecha", crop: "Arándano", sector: "B3", total: 28, present: 25, goal: 1200, progress: 980, unit: "kg", hoursPerWorker: 8, status: "En proceso" },
+  { id: "crew-arandano-seleccion-01", name: "Cuadrilla Arándano Selección 01", leaderId: "leader-rosa", leaderName: "Rosa", labor: "Selección", crop: "Arándano", sector: "B4", total: 22, present: 19, goal: 900, progress: 610, unit: "kg", hoursPerWorker: 8, status: "Prioridad" },
+  { id: "crew-arandano-riego-01", name: "Cuadrilla Arándano Riego 01", leaderId: "leader-luis", leaderName: "Luis", labor: "Riego", crop: "Arándano", sector: "A1", total: 7, present: 7, goal: 6, progress: 6, unit: "ha", hoursPerWorker: 8, status: "Terminado" },
+  { id: "crew-arandano-poda-01", name: "Cuadrilla Arándano Poda 01", leaderId: "leader-marta", leaderName: "Marta", labor: "Poda", crop: "Arándano", sector: "C1", total: 14, present: 0, goal: 800, progress: 0, unit: "plantas", hoursPerWorker: 0, status: "Programado" },
+  { id: "crew-arandano-fumigacion-01", name: "Cuadrilla Arándano Fumigación 01", leaderId: "leader-jorge", leaderName: "Jorge", labor: "Fumigación", crop: "Arándano", sector: "B4", total: 6, present: 0, goal: 5, progress: 0, unit: "ha", hoursPerWorker: 0, status: "Pendiente" },
 ];
 
-const firstNames = ["José", "Ana", "Luis", "Rosa", "Juan", "María", "Miguel", "Elena", "Pedro", "Carmen", "Diego", "Lucía", "Raúl", "Patricia", "Jorge", "Teresa", "Andrés", "Mónica", "Víctor", "Sofía", "Manuel", "Diana", "Renato", "Claudia", "Hugo"];
-const lastNames = ["Quispe", "Flores", "Mendoza", "Rojas", "Vargas", "Torres", "Paredes", "Salazar", "Castro", "Ramos"];
+export const crews: Crew[] = crewSeed.map((crew) => {
+  const remaining = Math.max(0, Number((crew.goal - crew.progress).toFixed(2)));
+  return {
+    ...crew,
+    totalWorkers: crew.total,
+    presentWorkers: crew.present,
+    absentWorkers: crew.total - crew.present,
+    progress: crew.progress,
+    remaining,
+    percentage: crew.goal > 0 ? Math.min(100, Math.round((crew.progress / crew.goal) * 100)) : 0,
+    manHours: crew.present * crew.hoursPerWorker,
+  };
+});
+
+const firstNames = ["José", "Ana", "Luis", "Rosa", "Juan", "María", "Miguel", "Elena", "Pedro", "Carmen", "Diego", "Lucía", "Raúl", "Patricia", "Jorge", "Teresa", "Andrés", "Mónica", "Víctor", "Sofía", "Manuel", "Diana", "Renato", "Claudia", "Hugo", "Marta", "Susana"];
+const lastNames = ["Quispe", "Flores", "Mendoza", "Rojas", "Vargas", "Torres", "Paredes", "Salazar", "Castro", "Ramos", "Acuña", "Medina"];
 
 function createWorkers(crew: Crew, offset: number): Worker[] {
   const average = crew.presentWorkers ? crew.progress / crew.presentWorkers : 0;
@@ -123,6 +203,9 @@ function createWorkers(crew: Crew, offset: number): Worker[] {
       unit: crew.unit,
       hoursWorked: present ? crew.hoursPerWorker : 0,
       observation: present ? (factor > 1.05 ? "Buen ritmo de trabajo." : "Avance regular durante la jornada.") : "Ausencia registrada.",
+      crop: crew.crop,
+      labor: crew.labor,
+      sector: crew.sector,
     };
   });
 }
@@ -132,7 +215,7 @@ export const workers: Worker[] = crews.flatMap((crew, index) => createWorkers(cr
 
 export const plannedTasks: PlannedTask[] = crews.map((crew, index) => ({
   id: `task-${index + 1}`,
-  date: "2026-07-07",
+  date: "2026-07-09",
   assignedTo: crew.leaderId,
   assignedName: crew.leaderName,
   labor: crew.labor,
@@ -158,14 +241,30 @@ export const weeklyPerformance: WeeklyPerformance[] = crews.flatMap((crew, crewI
 export const catalog = {
   encargados: leaders.map((item) => item.name),
   trabajadores: workers.map((item) => item.name),
-  cultivos: ["Palto", "Arándano", "Uva", "Mango"],
-  sectores: ["Lote 04", "Lote 05", "Lote 07", "Bloque B3", "Sector A1", "Sector C2"],
-  labores: ["Cosecha arándano", "Poda", "Maleza", "Machete", "Riego", "Fumigación"],
+  cultivos: operations.map((item) => item.name),
+  sectores: operations.flatMap((item) => item.blocks),
+  labores: operations.flatMap((item) => item.labors),
   cuadrillas: crews.map((item) => item.name),
   unidades: ["kg", "jabas", "bins", "plantas", "líneas", "ha", "metros", "sectores"],
 };
 
+export function getOperationCatalog(operation: OperationName) {
+  const current = operations.find((item) => item.name === operation) ?? operations[0];
+  const goals = baseGoals.filter((item) => item.operation === operation);
+  return {
+    operation: current,
+    sectors: current.blocks,
+    labors: current.labors,
+    baseGoals: goals,
+    units: Array.from(new Set([...goals.map((item) => item.unit), ...catalog.unidades])),
+    crews: crews.filter((item) => item.crop === operation).map((item) => item.name),
+  };
+}
+
+export function getBaseGoal(operation: OperationName, labor: string) {
+  return baseGoals.find((item) => item.operation === operation && item.labor === labor);
+}
+
 export const getCrewForLeader = (leaderId: string) => crews.find((crew) => crew.leaderId === leaderId)!;
 export const getWorkersForCrew = (crewId: string) => workers.filter((worker) => worker.crewId === crewId);
 export const getTaskForLeader = (leaderId: string) => plannedTasks.find((task) => task.assignedTo === leaderId)!;
-

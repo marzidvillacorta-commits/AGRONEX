@@ -1,13 +1,15 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import { crews as initialCrews, leaders as initialLeaders, workers as initialWorkers, type Crew, type LeaderUser, type Worker } from "@/data/agronexData";
+import { crews as initialCrews, getOperationCatalog, leaders as initialLeaders, workers as initialWorkers, type Crew, type LeaderUser, type OperationName, type Worker } from "@/data/agronexData";
 import type { DailyRecord, LocalPlanningRecord, LocalProgressRecord, SyncQueueRecord } from "@/lib/agronex-offline";
 
 type AgroSessionContextValue = {
   leaders: LeaderUser[];
   crews: Crew[];
   workers: Worker[];
+  currentOperation: OperationName;
+  operationCatalog: ReturnType<typeof getOperationCatalog>;
   progressRecords: LocalProgressRecord[];
   planningRecords: LocalPlanningRecord[];
   dailyRecords: Record<string, DailyRecord>;
@@ -31,6 +33,8 @@ const AgroSessionContext = createContext<AgroSessionContextValue>({
   leaders: initialLeaders,
   crews: initialCrews,
   workers: initialWorkers,
+  currentOperation: "Palto",
+  operationCatalog: getOperationCatalog("Palto"),
   progressRecords: [],
   planningRecords: [],
   dailyRecords: {},

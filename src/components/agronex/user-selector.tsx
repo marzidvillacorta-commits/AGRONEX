@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { ArrowLeft, LockKeyhole, UserRound } from "lucide-react";
-import type { LeaderUser } from "@/data/agronexData";
+import type { LeaderUser, OperationName } from "@/data/agronexData";
 import { AgroLogo } from "./brand";
 
-export function UserSelector({ leaders, onBack, onSelect }: { leaders: LeaderUser[]; onBack: () => void; onSelect: (leader: LeaderUser) => void }) {
+export function UserSelector({ operation, leaders, onBack, onSelect }: { operation: OperationName; leaders: LeaderUser[]; onBack: () => void; onSelect: (leader: LeaderUser) => void }) {
   const [selectedLeader, setSelectedLeader] = useState<LeaderUser | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -35,11 +35,16 @@ export function UserSelector({ leaders, onBack, onSelect }: { leaders: LeaderUse
         <header className="mb-7 mt-10">
           <p className="text-xs font-bold uppercase tracking-[.16em] text-[#2d8a61]">Acceso de campo</p>
           <h1 className="ag-page-title mt-2">Selecciona tu usuario</h1>
-          <p className="mt-2 text-sm text-[#718078]">Ingresa al panel de tu labor asignada.</p>
+          <p className="mt-2 text-sm text-[#718078]">Operación: {operation}</p>
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {leaders.map((leader) => (
+          {leaders.length === 0 ? (
+            <section className="rounded-2xl border border-dashed border-[#cfdcd3] bg-white p-5 text-center sm:col-span-2 xl:col-span-3">
+              <p className="text-sm font-extrabold text-[#294a3b]">Sin encargados registrados.</p>
+              <p className="mt-2 text-xs leading-5 text-[#718078]">Selecciona otra operación o solicita planificación al supervisor.</p>
+            </section>
+          ) : leaders.map((leader) => (
             <button key={leader.id} onClick={() => { setSelectedLeader(leader); setPassword(""); setError(""); }} className="ag-card group min-h-[132px] p-5 text-left transition hover:-translate-y-0.5 hover:border-[#bcd3c4] hover:shadow-md">
               <span className="grid size-11 place-items-center rounded-2xl bg-[#e9f6ef] text-[#18794e]">
                 <UserRound size={20} />
