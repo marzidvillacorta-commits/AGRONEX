@@ -1,4 +1,4 @@
-export type AppRole = "encargado" | "supervisor";
+export type AppRole = "encargado" | "supervisor" | "rrhh";
 export type Attendance = "Presente" | "Ausente";
 export type OperationStatus = "En proceso" | "Prioridad" | "Terminado" | "Pendiente" | "Programado";
 export type Priority = "Alta" | "Media" | "Normal";
@@ -9,7 +9,9 @@ export type AppScreen =
   | "inicio" | "registrar" | "cuadrilla" | "rendimiento" | "mas"
   | "trabajadores" | "pendientes" | "planificacion" | "avances"
   | "reportes" | "encargados" | "cuadrillas" | "sectores" | "configuracion"
-  | "sincronizacion";
+  | "sincronizacion"
+  | "hr-panel" | "hr-personal" | "hr-trabajador" | "hr-seguimiento" | "hr-evaluaciones"
+  | "hr-necesidad" | "hr-convocatorias" | "hr-postulantes" | "hr-historial" | "hr-config";
 
 export type Operation = {
   id: string;

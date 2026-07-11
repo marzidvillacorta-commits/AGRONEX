@@ -3,16 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   BarChart3,
   Bell,
+  ClipboardCheck,
   ClipboardPlus,
   CloudOff,
   Download,
+  FileSearch,
+  History,
   Home,
+  LayoutDashboard,
   LayoutGrid,
   ListChecks,
   LockKeyhole,
+  LogOut,
   MoreHorizontal,
+  Settings,
+  UserPlus,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -45,6 +53,7 @@ import {
 } from "@/lib/agronex-offline";
 import { applyProductivityToCrew, calculateCrewProductivity, normalizeWorkerAttendance } from "@/lib/agronex-productivity";
 import { AgroLogo } from "./brand";
+import { ScreenHeading } from "./ui";
 import {
   LeaderHome,
   LeaderMore,
@@ -71,6 +80,10 @@ import {
   SupervisorReports,
 } from "./supervisor-screens";
 import { UserSelector } from "./user-selector";
+import {
+  HRPanel, HRPersonal, HRSeguimiento, HREvaluaciones,
+  HRNecesidad, HRConvocatorias, HRPostulantes, HRHistorial, HRConfig, HRWorker,
+} from "./hr-screens";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -80,12 +93,16 @@ type BeforeInstallPromptEvent = Event & {
 // En producción, reemplazar este acceso temporal por Supabase Auth con usuarios, roles y permisos en base de datos.
 const TEMP_SUPERVISOR_PASSWORD = "admin123";
 const SUPERVISOR_SESSION_KEY = "agronex-supervisor-authenticated";
+const HR_USER = "rrhh";
+const HR_PASSWORD = "123";
+const HR_SESSION_KEY = "agronex-hr-authenticated";
 
 export function AgroNexApp() {
   const [localSnapshot] = useState(() => loadAgroLocalSnapshot(leaders, crews, crews.flatMap((crew) => getWorkersForCrew(crew.id))));
-  const [stage, setStage] = useState<"welcome" | "user-select" | "supervisor-access" | "app">("welcome");
+  const [stage, setStage] = useState<"welcome" | "user-select" | "supervisor-access" | "hr-access" | "app">("welcome");
   const [role, setRole] = useState<AppRole>("encargado");
   const [screen, setScreen] = useState<AppScreen>("inicio");
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [selectedOperation, setSelectedOperation] = useState<OperationName>("Palto");
   const [selectedLeader, setSelectedLeader] = useState<LeaderUser | null>(null);
   const [sessionLeaders, setSessionLeaders] = useState<LeaderUser[]>(localSnapshot.leaders);
@@ -107,6 +124,21 @@ export function AgroNexApp() {
   const filteredWorkers = useMemo(() => sessionWorkers.filter((worker) => filteredCrewIds.has(worker.crewId) || worker.crop === selectedOperation), [filteredCrewIds, selectedOperation, sessionWorkers]);
   const filteredProgressRecords = useMemo(() => progressRecords.filter((record) => record.crop === selectedOperation), [progressRecords, selectedOperation]);
   const filteredPlanningRecords = useMemo(() => planningRecords.filter((record) => record.crop === selectedOperation), [planningRecords, selectedOperation]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (sessionStorage.getItem(HR_SESSION_KEY) === "true") {
+        setRole("rrhh");
+        setScreen("hr-panel");
+        setStage("app");
+      } else if (sessionStorage.getItem(SUPERVISOR_SESSION_KEY) === "true") {
+        setRole("supervisor");
+        setScreen("inicio");
+        setStage("app");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     saveAgroLocalSnapshot({
@@ -178,8 +210,27 @@ export function AgroNexApp() {
     enterSupervisor();
   };
 
+  const requestHRAccess = () => {
+    if (sessionStorage.getItem(HR_SESSION_KEY) === "true") enterHR();
+    else setStage("hr-access");
+  };
+
+  const enterHR = () => {
+    setRole("rrhh");
+    setScreen("hr-panel");
+    setStage("app");
+  };
+
+  const authenticateHR = () => {
+    sessionStorage.setItem(HR_SESSION_KEY, "true");
+    enterHR();
+  };
+
   const exit = () => {
+    sessionStorage.removeItem(HR_SESSION_KEY);
+    sessionStorage.removeItem(SUPERVISOR_SESSION_KEY);
     setScreen("inicio");
+    setSelectedWorkerId(null);
     setStage("welcome");
   };
 
@@ -408,9 +459,10 @@ export function AgroNexApp() {
     enqueueSync(createSyncRecord("encargado", "delete", deleted ?? { id: leaderId }));
   };
 
-  if (stage === "welcome") return <Welcome selectedOperation={selectedOperation} onOperationChange={changeOperation} onLeader={() => setStage("user-select")} onSupervisor={requestSupervisor} />;
+  if (stage === "welcome") return <Welcome selectedOperation={selectedOperation} onOperationChange={changeOperation} onLeader={() => setStage("user-select")} onSupervisor={requestSupervisor} onHR={requestHRAccess} />;
   if (stage === "user-select") return <UserSelector operation={selectedOperation} leaders={filteredLeaders} onBack={() => setStage("welcome")} onSelect={enterLeader} />;
   if (stage === "supervisor-access") return <SupervisorAccess onCancel={() => setStage("welcome")} onSuccess={authenticateSupervisor} />;
+  if (stage === "hr-access") return <HRAccess onCancel={() => setStage("welcome")} onSuccess={authenticateHR} />;
 
   return (
     <AgroSessionProvider
@@ -446,8 +498,12 @@ export function AgroNexApp() {
         currentOperation={selectedOperation}
         sessionCrews={filteredCrews}
         sessionWorkers={filteredWorkers}
+        allWorkers={sessionWorkers}
+        allRecords={progressRecords}
         onSaveProgress={saveProgress}
         onNavigate={setScreen}
+        selectedWorkerId={selectedWorkerId}
+        onOpenWorker={(workerId) => { setSelectedWorkerId(workerId); setScreen("hr-trabajador"); }}
         onChangeUser={() => setStage("user-select")}
         onExit={exit}
       />
@@ -460,11 +516,13 @@ function Welcome({
   onOperationChange,
   onLeader,
   onSupervisor,
+  onHR,
 }: {
   selectedOperation: OperationName;
   onOperationChange: (operation: OperationName) => void;
   onLeader: () => void;
   onSupervisor: () => void;
+  onHR: () => void;
 }) {
   return (
     <main className="relative grid min-h-dvh overflow-hidden bg-[#123f2e] px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2.5rem,env(safe-area-inset-top))] text-white sm:place-items-center">
@@ -498,6 +556,12 @@ function Welcome({
           Ingresar como encargado
           <span className="grid size-9 place-items-center rounded-xl bg-[#e8f4ec]">
             <UserRound size={18} />
+          </span>
+        </button>
+        <button onClick={onHR} className="mt-3 flex min-h-14 w-full items-center justify-between rounded-2xl border border-white/20 bg-white/10 px-5 font-extrabold text-white shadow-lg shadow-black/10 transition active:scale-[.98]">
+          Acceso de RR. HH.
+          <span className="grid size-9 place-items-center rounded-xl bg-white/15 text-white">
+            <UsersRound size={18} />
           </span>
         </button>
         <p className="mt-5 text-center text-[10px] font-semibold tracking-[.14em] text-white/35">by Zidnex Digital</p>
@@ -554,6 +618,48 @@ function SupervisorAccess({ onCancel, onSuccess }: { onCancel: () => void; onSuc
   );
 }
 
+function HRAccess({ onCancel, onSuccess }: { onCancel: () => void; onSuccess: () => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(false);
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (username === HR_USER && password === HR_PASSWORD) {
+      onSuccess();
+      return;
+    }
+    setError(true);
+    setPassword("");
+  };
+
+  return (
+    <main className="relative grid min-h-dvh place-items-center overflow-hidden bg-[#123f2e] px-5 py-[max(2.5rem,env(safe-area-inset-top))]">
+      <div className="ag-grid absolute inset-0 opacity-20" />
+      <form onSubmit={submit} className="relative z-10 w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl shadow-black/20 sm:p-7">
+        <span className="grid size-12 place-items-center rounded-2xl bg-[#e9f6ef] text-[#18794e]">
+          <UsersRound size={22} />
+        </span>
+        <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-[#173c2d]">Acceso de RR. HH.</h1>
+        <p className="mt-2 text-sm text-[#718078]">Ingresa tus credenciales para continuar.</p>
+        <label className="ag-label mt-6 block">
+          Usuario
+          <input autoFocus autoComplete="username" value={username} onChange={(e) => { setUsername(e.target.value); setError(false); }} className="ag-field" required />
+        </label>
+        <label className="ag-label mt-4 block">
+          Contraseña
+          <input autoComplete="current-password" value={password} onChange={(e) => { setPassword(e.target.value); setError(false); }} className={`ag-field ${error ? "border-[#c45b48]" : ""}`} type="password" required />
+        </label>
+        {error && <p role="alert" className="mt-3 text-xs font-bold text-[#b84d3a]">Credenciales incorrectas. Intenta nuevamente.</p>}
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <button type="submit" className="ag-primary">Ingresar</button>
+          <button type="button" onClick={onCancel} className="ag-secondary">Cancelar</button>
+        </div>
+      </form>
+    </main>
+  );
+}
+
 function AppShell({
   role,
   screen,
@@ -561,8 +667,12 @@ function AppShell({
   currentOperation,
   sessionCrews,
   sessionWorkers,
+  allWorkers,
+  allRecords,
   onSaveProgress,
   onNavigate,
+  selectedWorkerId,
+  onOpenWorker,
   onChangeUser,
   onExit,
 }: {
@@ -572,8 +682,12 @@ function AppShell({
   currentOperation: OperationName;
   sessionCrews: Crew[];
   sessionWorkers: Worker[];
+  allWorkers?: Worker[];
+  allRecords?: LocalProgressRecord[];
   onSaveProgress: (submission: ProgressSubmission) => void;
   onNavigate: (screen: AppScreen) => void;
+  selectedWorkerId: string | null;
+  onOpenWorker: (workerId: string) => void;
   onChangeUser: () => void;
   onExit: () => void;
 }) {
@@ -614,7 +728,7 @@ function AppShell({
             </button>
             <button onClick={() => onNavigate("mas")} className="hidden min-h-10 items-center gap-2 rounded-xl bg-white/10 px-3 text-xs font-bold sm:flex">
               <UserRound size={16} />
-              {role === "supervisor" ? "Supervisor general" : leader?.name}
+              {role === "rrhh" ? "Recursos Humanos" : role === "supervisor" ? "Supervisor general" : leader?.name}
             </button>
           </div>
         </div>
@@ -625,15 +739,31 @@ function AppShell({
           {primaryNav(role).map((item) => <NavButton key={item.screen} {...item} active={screen === item.screen} onClick={() => onNavigate(item.screen)} desktop />)}
         </nav>
         <div className="mt-auto rounded-2xl bg-[#f0f6f2] p-4">
-          <p className="text-xs font-bold text-[#315343]">{role === "supervisor" ? `Operación ${currentOperation}` : crew?.name}</p>
-          <p className="mt-1 text-[11px] leading-5 text-[#75857c]">{role === "supervisor" ? `${sessionCrews.length} labores activas` : `${crew?.labor} · ${crew?.sector}`}</p>
-          {crew && <div className="mt-3"><ProgressBarMini value={crew.percentage} /></div>}
+          {role === "rrhh" ? (
+            <>
+              <p className="text-xs font-bold text-[#315343]">Recursos Humanos</p>
+              <p className="mt-1 text-[11px] leading-5 text-[#75857c]">Gestión de personal</p>
+            </>
+          ) : role === "supervisor" ? (
+            <>
+              <p className="text-xs font-bold text-[#315343]">Operación {currentOperation}</p>
+              <p className="mt-1 text-[11px] leading-5 text-[#75857c]">{sessionCrews.length} labores activas</p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-bold text-[#315343]">{crew?.name}</p>
+              <p className="mt-1 text-[11px] leading-5 text-[#75857c]">{crew?.labor} · {crew?.sector}</p>
+              {crew && <div className="mt-3"><ProgressBarMini value={crew.percentage} /></div>}
+            </>
+          )}
         </div>
       </aside>
 
       <main className="mx-auto max-w-[1440px] overflow-x-hidden px-4 pb-[calc(104px+env(safe-area-inset-bottom))] pt-[calc(88px+env(safe-area-inset-top))] sm:px-6 md:pb-10 md:pl-[280px] md:pr-8 md:pt-[calc(88px+env(safe-area-inset-top))] lg:px-10 lg:pl-[296px]">
         <ConnectionNotice text={connectionNotice} isOnline={isOnline} />
-        {role === "encargado" && leader && crew ? (
+        {role === "rrhh" ? (
+          <HRRoutes screen={screen} workers={allWorkers ?? sessionWorkers} records={allRecords ?? []} selectedWorkerId={selectedWorkerId} onOpenWorker={onOpenWorker} onNavigate={onNavigate} onExit={onExit} />
+        ) : role === "encargado" && leader && crew ? (
           <LeaderRoutes screen={screen} leader={leader} crew={crew} workers={leaderWorkers} onSave={onSaveProgress} onNavigate={onNavigate} onChangeUser={onChangeUser} onExit={onExit} />
         ) : (
           <SupervisorRoutes screen={screen} onNavigate={onNavigate} onExit={onExit} />
@@ -692,6 +822,63 @@ function SupervisorRoutes({ screen, onNavigate, onExit }: { screen: AppScreen; o
   return <SupervisorDashboard onNavigate={onNavigate} />;
 }
 
+function HRRoutes({ screen, workers, records, selectedWorkerId, onOpenWorker, onNavigate, onExit }: { screen: AppScreen; workers: Worker[]; records: LocalProgressRecord[]; selectedWorkerId: string | null; onOpenWorker: (workerId: string) => void; onNavigate: (screen: AppScreen) => void; onExit: () => void }) {
+  if (screen === "hr-trabajador") {
+    const worker = workers.find((item) => item.id === selectedWorkerId);
+    if (worker) return <HRWorker worker={worker} records={records} onBack={() => onNavigate("hr-personal")} />;
+    queueMicrotask(() => onNavigate("hr-personal"));
+    return null;
+  }
+  if (screen === "hr-personal") return <HRPersonal workers={workers} records={records} onOpenWorker={onOpenWorker} />;
+  if (screen === "hr-seguimiento") return <HRSeguimiento workers={workers} records={records} onOpenWorker={onOpenWorker} />;
+  if (screen === "hr-evaluaciones") return <HREvaluaciones workers={workers} records={records} onOpenWorker={onOpenWorker} />;
+  if (screen === "hr-necesidad") return <HRNecesidad onNavigate={onNavigate} />;
+  if (screen === "hr-convocatorias") return <HRConvocatorias onNavigate={onNavigate} />;
+  if (screen === "hr-postulantes") return <HRPostulantes />;
+  if (screen === "hr-historial") return <HRHistorial />;
+  if (screen === "hr-config") return <HRConfig />;
+  if (screen === "mas") return <HRMore onNavigate={onNavigate} onExit={onExit} />;
+  return <HRPanel workers={workers} records={records} onNavigate={onNavigate} onOpenWorker={onOpenWorker} />;
+}
+
+function HRMore({ onNavigate, onExit }: { onNavigate: (screen: AppScreen) => void; onExit: () => void }) {
+  const items: Array<{ label: string; description: string; icon: typeof Home; screen: AppScreen }> = [
+    { label: "Evaluaciones", description: "Desempeño y decisiones", icon: FileSearch, screen: "hr-evaluaciones" },
+    { label: "Necesidad de personal", description: "Cálculo de dotación", icon: UserPlus, screen: "hr-necesidad" },
+    { label: "Postulantes", description: "Banco de candidatos", icon: UsersRound, screen: "hr-postulantes" },
+    { label: "Historial", description: "Cambios y acciones", icon: History, screen: "hr-historial" },
+    { label: "Configuración", description: "Parámetros del módulo", icon: Settings, screen: "hr-config" },
+  ];
+  return (
+    <div>
+      <ScreenHeading eyebrow="Recursos Humanos" title="Más opciones" description="Gestión completa de personal." />
+      <div className="ag-card divide-y divide-[#edf1ee]">
+        {items.map(({ label, description, icon: Icon, screen }) => (
+          <button key={label} onClick={() => onNavigate(screen)} className="flex min-h-[72px] w-full items-center gap-4 px-5 text-left hover:bg-[#f7f9f7]">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#247a56]">
+              <Icon size={19} />
+            </span>
+            <span className="flex-1">
+              <strong className="block text-sm text-[#294a3b]">{label}</strong>
+              <span className="mt-1 block text-xs text-[#7b8981]">{description}</span>
+            </span>
+            <ArrowRight size={17} className="text-[#8d9992]" />
+          </button>
+        ))}
+        <button onClick={onExit} className="flex min-h-[72px] w-full items-center gap-4 px-5 text-left hover:bg-[#fff6f3]">
+          <span className="grid size-10 place-items-center rounded-xl bg-[#fff0ed] text-[#bd513c]">
+            <LogOut size={19} />
+          </span>
+          <span>
+            <strong className="block text-sm text-[#6d3d34]">Salir</strong>
+            <span className="mt-1 block text-xs text-[#7b8981]">Cerrar sesión de RR. HH.</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const screenTitles: Record<AppScreen, string> = {
   inicio: "Inicio",
   registrar: "Registrar",
@@ -708,9 +895,28 @@ const screenTitles: Record<AppScreen, string> = {
   sectores: "Sectores",
   configuracion: "Configuración",
   sincronizacion: "Sincronización",
+  "hr-panel": "Panel de personal",
+  "hr-personal": "Personal",
+  "hr-trabajador": "Trabajador",
+  "hr-seguimiento": "Seguimiento",
+  "hr-evaluaciones": "Evaluaciones",
+  "hr-necesidad": "Necesidad de personal",
+  "hr-convocatorias": "Convocatorias",
+  "hr-postulantes": "Postulantes",
+  "hr-historial": "Historial",
+  "hr-config": "Configuración",
 };
 
 function primaryNav(role: AppRole): { screen: AppScreen; label: string; icon: typeof Home }[] {
+  if (role === "rrhh") {
+    return [
+      { screen: "hr-panel", label: "Panel", icon: LayoutDashboard },
+      { screen: "hr-personal", label: "Personal", icon: UsersRound },
+      { screen: "hr-seguimiento", label: "Seguimiento", icon: ClipboardCheck },
+      { screen: "hr-convocatorias", label: "Convocatorias", icon: BarChart3 },
+      { screen: "mas", label: "Más", icon: MoreHorizontal },
+    ];
+  }
   return role === "encargado"
     ? [
         { screen: "inicio", label: "Inicio", icon: Home },
